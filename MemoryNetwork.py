@@ -9,63 +9,85 @@ class MemoryNetwork:
 
         self.V = vocab_size
         self.d = embedding_dim
-        self.K = number_of_hops
+        self.number_of_hops = int(number_of_hops)
 
         self.batch_size = batch_size
         self.M = number_of_memories
         self.J = max_sentence_len
 
-        self.nr_word_embedding_matrices_dict = {
-            'adj': 1 + (self.number_of_hops - 1) + 1,
-            'rnnlike': 1 + 2 + 1,
-            'allsame': 1,
-            'alldiff': 1 + (2 * self.number_of_hops) + 1
-        }
-
-        self.nr_temporal_embedding_matrices_dict = {
-            'adj': 1 + (self.number_of_hops - 1) + 1,
-            'rnnlike': 2,
-            'allsame': 1,
-            'alldiff': (2 * self.number_of_hops)
+        self.nr_embedding_matrices_formulas = {
+            'word': {
+                'adj': 1 + (self.number_of_hops - 1) + 1,
+                'rnnlike': 1 + 2 + 1,
+                'allsame': 1,
+                'alldiff': 1 + (2 * self.number_of_hops) + 1
+            },
+            'temporal': {
+                'adj': 1 + (self.number_of_hops - 1) + 1,
+                'rnnlike': 2,
+                'allsame': 1,
+                'alldiff': (2 * self.number_of_hops)
+            }
         }
 
         # formulas for retrieving the appropriate word embedding matrix in a list of distinct word embedding matrices
         # the argument i assumes memory layers are indexed from 0 to K-1 (whereas the paper used 1-based indices)
-        self.routing_formula = {
-            'adj': {
-                'B': 0,
-                'A': lambda i: i,
-                'C': lambda i: i+1,
-                'W': -1
+        self.routing_formulas = {
+            'word': {
+                'adj': {
+                    'B': 0,
+                    'A': lambda i: i,
+                    'C': lambda i: i+1,
+                    'W': -1
+                },
+                'rnnlike': {
+                    'B': 0,
+                    'A': lambda i: 1,
+                    'C': lambda i: 2,
+                    'W': -1
+                },
+                'allsame': {
+                    'B': 0,
+                    'A': lambda i: 0,
+                    'C': lambda i: 0,
+                    'W': 0
+                },
+                'alldiff': {
+                    'B': 0,
+                    'A': lambda i: 2*i + 1,
+                    'C': lambda i: 2*i + 2,
+                    'W': -1
+                }
             },
-            'rnnlike': {
-                'B': 0,
-                'A': lambda i: 1,
-                'C': lambda i: 2,
-                'W': -1
-            },
-            'allsame': {
-                'B': 0,
-                'A': lambda i: 0,
-                'C': lambda i: 0,
-                'W': 0
-            },
-            'alldiff': {
-                'B': 0,
-                'A': lambda i: 2*i + 1,
-                'C': lambda i: 2*i + 2,
-                'W': -1
+            'temporal': {
+                'adj': {
+                    'T_A': lambda i: i,
+                    'T_C': lambda i: i+1
+                },
+                'rnnlike': {
+                    'T_A': lambda i: 0,
+                    'T_C': lambda i: 1
+                },
+                'allsame': {
+                    'T_A': lambda i: 0,
+                    'T_C': lambda i: 0
+                },
+                'alldiff': {
+                    'T_A': lambda i: 2*i,
+                    'T_C': lambda i: 2*i + 1
+                }
             }
         }
 
-        self.nr_word_embedding_matrices = self.nr_word_embedding_matrices_dict[weight_tying_scheme]
-        self.nr_temporal_embedding_matrices = self.nr_temporal_embedding_matrices_dict[weight_tying_scheme]
+        self.nr_embedding_matrices = {
+            'word':     self.nr_embedding_matrices_formulas['word'][weight_tying_scheme],
+            'temporal': self.nr_embedding_matrices_formulas['temporal'][weight_tying_scheme]
+        }
 
-        self.word_embedding_matrices_list = [self.build_word_embedding(idx) \
-                                             for idx in range(0, self.nr_word_embedding_matrices)]
-
-        self.temporal_embedding_matrices_list = [self.build_temporal_embedding(idx) \
-                                                 for idx in range(0, self.nr_temporal_embedding_matrices)]
+        self.embedding_matrices = {
+            'word':     [self.build_word_embedding(idx) for idx in range(self.nr_embedding_matrices['word'])],
+            'temporal': [self.build_temporal_embedding(idx) for idx in range(self.nr_embedding_matrices['temporal'])]
+        }
 
         self.layer_transition_operator = {
             'adj': tf.constant(tf.eye(self.d)),
@@ -77,11 +99,11 @@ class MemoryNetwork:
         self.H = self.layer_transition_operator[weight_tying_scheme]
         self.l = self.build_position_encoding() if position_encoding else self.build_bag_of_words_encoding()
 
-        B_retrieval_idx = self.routing_formula[weight_tying_scheme]['B']
-        self.B = self.word_embedding_matrices_list[B_retrieval_idx]
+        B_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['B']
+        self.B = self.embedding_matrices['word'][B_retrieval_idx]
 
-        W_retrieval_idx = self.routing_formula[weight_tying_scheme]['W']
-        self.W = self.word_embedding_matrices_list[W_retrieval_idx].T
+        W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
+        self.W = self.embedding_matrices['word'][W_retrieval_idx].T
 
         sentences_ints_batch, question_ints_batch, answer_ints_batch = self.build_inputs()
         u_batch = self.get_encoded_questions(question_ints_batch)
@@ -93,7 +115,6 @@ class MemoryNetwork:
 
         answer_logits_batch = tf.matmul(memory_output_batch, self.W)     # [batch_size, d] x [d, V] = [batch_size, V]
         answer_probabilities_batch = tf.nn.softmax(answer_logits_batch)  # [batch_size, V]
-
 
 
     def build_inputs(self):
@@ -115,18 +136,25 @@ class MemoryNetwork:
     def build_and_stack_memory_layers(self, weight_tying_scheme, input_sentences_ints_batch, u_batch):
         layer_results = [u_batch]
 
-        for i in range(0, self.K):
-            A_retrieval_idx = self.routing_formula[weight_tying_scheme]['A'](i)
-            A = self.word_embedding_matrices_list[A_retrieval_idx]
+        for i in range(0, self.number_of_hops):
 
-            C_retrieval_idx = self.routing_formula[weight_tying_scheme]['C'](i)
-            C = self.word_embedding_matrices_list[C_retrieval_idx]
+            # get embedding matrices for memory layer i
 
-            T_A_retrieval_idx = self.routing_formula[weight_tying_scheme]['T_A'](i)
-            T_A = self.word_embedding_matrices_list[T_A_retrieval_idx]
+            A_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['A'](i)
+            A = self.embedding_matrices['word'][A_retrieval_idx]
 
-            T_C_retrieval_idx = self.routing_formula[weight_tying_scheme]['T_C'](i)
-            T_C = self.word_embedding_matrices_list[T_C_retrieval_idx]
+            C_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['C'](i)
+            C = self.embedding_matrices['word'][C_retrieval_idx]
+
+            T_A_retrieval_idx = self.routing_formulas['temporal'][weight_tying_scheme]['T_A'](i)
+            T_A = self.embedding_matrices['temporal'][T_A_retrieval_idx]
+
+            T_C_retrieval_idx = self.routing_formulas['temporal'][weight_tying_scheme]['T_C'](i)
+            T_C = self.embedding_matrices['temporal'][T_C_retrieval_idx]
+
+            # now we call a function that will:
+            #  - compute memory layer i's contents, using the input sentences and the embedding matrices.
+            #  - run query against memory layer i to obtain that layer's response
 
             u_next = self.build_memory_layer(
                 input_sentences_ints_batch=input_sentences_ints_batch,
