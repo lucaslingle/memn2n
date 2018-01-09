@@ -52,8 +52,8 @@ class MemoryNetwork:
             },
             'alldiff': {
                 'B': 0,
-                'A': lambda i: (2*i) + 1,
-                'C': lambda i: (2*i) + 2,
+                'A': lambda i: 2*i + 1,
+                'C': lambda i: 2*i + 2,
                 'W': -1
             }
         }
