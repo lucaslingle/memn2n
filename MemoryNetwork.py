@@ -7,13 +7,13 @@ class MemoryNetwork:
                  weight_tying_scheme='adj',
                  position_encoding=True):
 
-        self.V = vocab_size
-        self.d = embedding_dim
+        self.V = int(vocab_size)
+        self.d = int(embedding_dim)
         self.number_of_hops = int(number_of_hops)
 
-        self.batch_size = batch_size
-        self.M = number_of_memories
-        self.J = max_sentence_len
+        self.batch_size = int(batch_size)
+        self.M = int(number_of_memories)
+        self.J = int(max_sentence_len)
 
         self.nr_embedding_matrices_formulas = {
             'word': {
@@ -85,8 +85,8 @@ class MemoryNetwork:
         }
 
         self.embedding_matrices = {
-            'word':     [self.build_word_embedding(idx) for idx in range(self.nr_embedding_matrices['word'])],
-            'temporal': [self.build_temporal_embedding(idx) for idx in range(self.nr_embedding_matrices['temporal'])]
+            'word':     [self.build_word_embedding_matrix(idx) for idx in range(self.nr_embedding_matrices['word'])],
+            'temporal': [self.build_temporal_embedding_matrix(idx) for idx in range(self.nr_embedding_matrices['temporal'])]
         }
 
         self.layer_transition_operator = {
@@ -200,13 +200,21 @@ class MemoryNetwork:
 
         return u_next
 
-    def build_word_embedding(self, idx):
-        embedding_matrix = tf.get_variable('word_embedding_matrix_' + str(idx), dtype='float', shape=[self.V, self.d])
-        return embedding_matrix
+    def build_word_embedding_matrix(self, matrix_id):
+        # According to 'End-to-End Memory Networks' section 4.2:
+        #  "The embedding of the null symbol was constrained to be zero."
+        #
+        # In this implementation, we assume that the vocab dictionary maps the null word to int value 0.
+        #
+        pad_embedding = tf.constant(tf.zeros([1, self.d]))
+        nonpad_embeddings = tf.get_variable('word_embedding_matrix_' + str(matrix_id), dtype='float', shape=[self.V - 1, self.d])
 
-    def build_temporal_embedding(self, idx):
-        embedding_matrix = tf.get_variable('temporal_embedding_matrix_' + str(idx), dtype='float', shape=[self.M, self.d])
-        return embedding_matrix
+        word_embedding_matrix = tf.concat([pad_embedding, nonpad_embeddings], axis = 0)
+        return word_embedding_matrix
+
+    def build_temporal_embedding_matrix(self, idx):
+        temporal_embedding_matrix = tf.get_variable('temporal_embedding_matrix_' + str(idx), dtype='float', shape=[self.M, self.d])
+        return temporal_embedding_matrix
 
     def build_H_mapping(self):
         H_matrix = tf.get_variable('H_matrix', dtype='float', shape=[self.d, self.d])
