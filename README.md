@@ -1,12 +1,46 @@
-# memn2n
-Tensorflow implementation of [End-to-End Memory Networks](https://arxiv.org/abs/1503.08895)
+End-to-End Memory Networks in Tensorflow
+========================================
+Tensorflow implementation of [End-to-End Memory Networks](https://arxiv.org/abs/1503.08895).
+The original code from Facebook using Matlab and Lua can be found [here](https://github.com/facebook/MemNN).  
 
-Current implementation includes:
-   Section 2: End-to-End Memory Network model
-   Section 4: Synthetic Question Answering experiments using the Facebook bAbI dataset. 
+![alt tag](assets/memn2n.png?raw=true)
 
-Coming soon:
-   Section 5: Language Modeling experiments on the Penn Treebank dataset.
+Current implementation:
+
+| Section       | Description                                                                    | Status  |
+| ------------- |:------------------------------------------------------------------------------:| -------:|
+| Section 2     | End-to-End Memory Network model                                                | Done    |
+| Section 4     | Synthetic Question Answering experiments using the Facebook bAbI dataset.      | Done    |
+| Section 5     | Language Modeling experiments on the Penn Treebank dataset.                    | Soon!   |
+
+
+Prerequisites
+-------------
+Install Anaconda 3, if you don't have it already. 
+Create a new conda environment using the dependencies listed in ```memn2n_env.yml```:
+
+$ conda env create -f memn2n_env.yml
+
+And activate the environment:
+
+$ source activate memn2n_env
+
+Datasets
+--------
+Download the bAbI dataset using the link provided on the following page:
+https://research.fb.com/downloads/babi/
+
+
+Usage
+-----
+
+To train the memory network with 3 hops and memory size of 50, run the following:
+
+    $ python main.py --dataset_selector=babi --babi_joint=True --number_of_hops=3 --number_of_memories=50 --mode=train
+
+To see all configuration options, run:
+
+    $ python main.py --help
 
 ```
 usage: main.py [-h] [--dataset_selector DATASET_SELECTOR]
