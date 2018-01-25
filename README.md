@@ -15,8 +15,11 @@ Current implementation:<br>
 
 <br>
 
-Prerequisites
--------------
+Getting started
+---------------
+
+Dependencies
+------------
 Install Anaconda 3, if you don't have it already.<br>
 Create a new conda environment using the dependencies listed in memn2n_env.yml:
 
@@ -28,23 +31,29 @@ And activate the environment:
 ```
 $ source activate memn2n_env
 ```
-<br>
 
-Datasets
+Data
 --------
 Download the bAbI dataset using the link provided on the following page:<br>
 https://research.fb.com/downloads/babi/
-<br>
+<br><br>
 
 Usage
 -----
 
-To train the memory network with 3 hops and memory size of 50, run the following:
+To train the memory network with 3 hops and memory size of 50, run the following:  
 ```
-$ python main.py --dataset_selector=babi --babi_joint=True --number_of_hops=3 --number_of_memories=50 --mode=train
+$ python main.py \
+    --dataset_selector=babi \
+    --babi_joint=True \
+    --number_of_hops=3 \
+    --number_of_memories=50 \
+    --mode=train
+
 ```
-<br>
-To see all configuration options, run:
+
+To see all configuration options, run:  
+
 ```
 $ python main.py --help
 ```
