@@ -6,10 +6,13 @@ The original code from Facebook using Matlab and Lua can be found [here](https:/
 Current implementation:<br>  
 
 | Section       | Description                                                                    | Status  |
-| ------------- |:------------------------------------------------------------------------------:| -------:|
+| ------------- |--------------------------------------------------------------------------------| --------|
 | Section 2     | End-to-End Memory Network model                                                | Done    |
 | Section 4     | Synthetic Question Answering experiments using the Facebook bAbI dataset.      | Done    |
 | Section 5     | Language Modeling experiments on the Penn Treebank dataset.                    | Soon!   |
+
+Model Architecture
+------------------
 
 ![alt tag](assets/memn2n.png?raw=true)
 
