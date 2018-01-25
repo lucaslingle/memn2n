@@ -1,0 +1,2 @@
+model_checkpoint_path: "/Users/lucaslingle/git/memn2n/checkpoints/memn2n_model"
+all_model_checkpoint_paths: "/Users/lucaslingle/git/memn2n/checkpoints/memn2n_model"
