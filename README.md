@@ -3,6 +3,8 @@ End-to-End Memory Networks in Tensorflow
 Tensorflow implementation of [End-to-End Memory Networks](https://arxiv.org/abs/1503.08895).<br>
 The original code from Facebook using Matlab and Lua can be found [here](https://github.com/facebook/MemNN).<br>  
 
+![alt tag](assets/memn2n_small.png?raw=true)
+
 Current implementation:<br>  
 
 | Section       | Description                                                                    | Status  |
@@ -10,11 +12,6 @@ Current implementation:<br>
 | Section 2     | End-to-End Memory Network model                                                | Done    |
 | Section 4     | Synthetic Question Answering experiments using the Facebook bAbI dataset.      | Done    |
 | Section 5     | Language Modeling experiments on the Penn Treebank dataset.                    | Soon!   |
-
-Model Architecture
-------------------
-
-![alt tag](assets/memn2n_small.png?raw=true)
 
 Prerequisites
 -------------
