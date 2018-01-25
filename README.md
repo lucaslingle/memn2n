@@ -14,18 +14,18 @@ Current implementation:<br>
 Model Architecture
 ------------------
 
-![alt tag](assets/memn2n.png?raw=true)
+![alt tag](assets/memn2n_small.png?raw=true)
 
 Prerequisites
 -------------
 Install Anaconda 3, if you don't have it already. 
 Create a new conda environment using the dependencies listed in ```memn2n_env.yml```:
 
-$ conda env create -f memn2n_env.yml
+    $ conda env create -f memn2n_env.yml
 
 And activate the environment:
 
-$ source activate memn2n_env
+    $ source activate memn2n_env
 
 Datasets
 --------
