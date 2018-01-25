@@ -15,14 +15,18 @@ Current implementation:<br>
 
 Prerequisites
 -------------
-Install Anaconda 3, if you don't have it already. 
-Create a new conda environment using the dependencies listed in ```memn2n_env.yml```:
+Install Anaconda 3, if you don't have it already.<br>  
+Create a new conda environment using the dependencies listed in memn2n_env.yml:<br>
 
-    $ conda env create -f memn2n_env.yml
+```bash
+$ conda env create -f memn2n_env.yml
+```
+<br>
+And activate the environment:<br>
 
-And activate the environment:
-
-    $ source activate memn2n_env
+```bash
+$ source activate memn2n_env
+```
 
 Datasets
 --------
