@@ -1,7 +1,6 @@
 .idea/
 *~
 .ipynb_checkpoints
-.checkpoints
 data
 datasets
-
+paper

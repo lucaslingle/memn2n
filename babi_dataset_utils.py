@@ -1,6 +1,7 @@
 import os
 import re
 import numpy as np
+import pickle
 
 class Sentence:
     def __init__(self, string):
@@ -15,8 +16,8 @@ class Sentence:
             tokens_and_punctuation = [x.strip() for x in tokens_punctuation_and_whitespaces if x.strip()]
             return tokens_and_punctuation
 
-    def get_tokens_with_padding(self, max_sentence_len, pad_token, drop_punctuation=True):
-        tokens = self.get_tokens(drop_punctuation=drop_punctuation)
+    @staticmethod
+    def pad_tokens(tokens, max_sentence_len, pad_token):
 
         if len(tokens) < max_sentence_len:
             padding_tokens = [pad_token for _ in range(max_sentence_len - len(tokens))]
@@ -27,12 +28,13 @@ class Sentence:
             tokens = tokens[0:max_sentence_len]
             return tokens
 
-    def get_padded_int_array(self, vocab_dict, pad_token, unk_token, max_sentence_len, drop_punctuation=True):
-        tokens_padded = self.get_tokens_with_padding(max_sentence_len, pad_token, drop_punctuation=drop_punctuation)
+    @staticmethod
+    def padded_int_array(sentence_ints, pad_id, max_sentence_len):
+        sentence_ints_array = np.array(sentence_ints, dtype=np.int32)
+        padding_array = pad_id * np.ones((max_sentence_len - len(sentence_ints)), dtype=np.int32)
 
-        word_to_int = lambda w: vocab_dict[w] if w in vocab_dict else vocab_dict[unk_token]
-        word_ints_padded = map(word_to_int, tokens_padded)
-        return np.array(word_ints_padded, dtype=np.int32)
+        return np.concatenate([sentence_ints_array, padding_array])
+
 
 class Story:
     def __init__(self):
@@ -73,6 +75,7 @@ class Story:
         a = f(sqa[2].string)
 
         return (ss, q, a)
+
 
 class bAbI:
 
@@ -139,9 +142,22 @@ class bAbI:
 
         return stories
 
-    def get_vocab_set_from_sqa_tuples(self, sqa_tuples):
-        vocab = set()
+    def compute_max_sentence_len_from_sqa_tuples(self, sqa_tuples):
         max_sentence_len = 0
+
+        for sqa in sqa_tuples:
+            ss = list(map(lambda s: s.get_tokens(), sqa[0]))
+            q = sqa[1].get_tokens()
+            a = [sqa[2].string]
+
+            slen = max([len(s) for s in ss])
+            qlen = len(q)
+            max_sentence_len = max([max_sentence_len, slen, qlen])
+
+        return max_sentence_len
+
+    def compute_vocab_set_from_sqa_tuples(self, sqa_tuples):
+        vocab = set()
 
         for sqa in sqa_tuples:
             ss = list(map(lambda s: s.get_tokens(), sqa[0]))
@@ -153,28 +169,55 @@ class bAbI:
             vocab |= set(q)
             vocab |= set(a)
 
-            slen = max([len(s) for s in ss])
-            qlen = len(q)
-            max_sentence_len = max([max_sentence_len, slen, qlen])
+        return vocab
 
-        return vocab, max_sentence_len
+    def compute_vocab_dict_from_sqa_tuples(self, sqa_tuples):
+        vocab_set = self.compute_vocab_set_from_sqa_tuples(sqa_tuples)
+        vocab_list = sorted(list(vocab_set))
+        vocab_list.insert(0, self.unknown_token)
+        vocab_list.insert(0, self.pad_token)
 
-    def prepare_data_for_single_task(self, data_dir, task_id):
+        vocab_dict = dict({w: i for i, w in enumerate(vocab_list)})
+        return vocab_dict
+
+    def save_vocab_dict_to_file(self, vocab_dict, vocab_fp):
+        with open(vocab_fp, 'wb') as handle:
+            pickle.dump(vocab_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            print("[*] Successfully saved vocab dictionary as {}".format(vocab_fp))
+            return
+
+    def load_vocab_dict_from_file(self, vocab_fp):
+        with open(vocab_fp, 'rb') as handle:
+            vocab_dict = pickle.load(handle)
+            print("[*] Successfully loaded vocab dictionary from {}".format(vocab_fp))
+            return vocab_dict
+
+    def prepare_data_for_single_task(self, data_dir, task_id, validation_frac, random_seed=0, vocab_dict=None):
+        np.random.seed(random_seed)
+
         train_fp = self.get_fp_for_task(data_dir, 'train', task_id)
         test_fp = self.get_fp_for_task(data_dir, 'test', task_id)
 
         train_stories = self.get_stories(train_fp)
         test_stories = self.get_stories(test_fp)
 
+        np.random.shuffle(train_stories)
+        np.random.shuffle(test_stories)
+
+        split_idx = len(train_stories) - max(1, int(validation_frac * len(train_stories)))
+        train_stories = train_stories[0:split_idx]
+        validation_stories = train_stories[split_idx:]
+
         train_sqa_tuples = [sqa for story in train_stories for sqa in story.sqa_tuples]
+        validation_sqa_tuples = [sqa for story in validation_stories for sqa in story.sqa_tuples]
         test_sqa_tuples = [sqa for story in test_stories for sqa in story.sqa_tuples]
 
-        vocab_set, max_sentence_len = self.get_vocab_set_from_sqa_tuples(train_sqa_tuples + test_sqa_tuples)
-        vocab_list = list(vocab_set)
-        vocab_list.insert(0, self.unknown_token)
-        vocab_list.insert(0, self.pad_token)
+        all_sqa_tuples = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
 
-        vocab_dict = dict({w: i for i, w in enumerate(vocab_list)})
+        if vocab_dict is None:
+            vocab_dict = self.compute_vocab_dict_from_sqa_tuples(all_sqa_tuples)
+
+        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(all_sqa_tuples)
 
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
@@ -182,13 +225,20 @@ class bAbI:
         f = lambda x: self.vocab_dict[x]
 
         train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
+        validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
         test_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in test_sqa_tuples]
 
-        return train_sqa_tuples_ints, test_sqa_tuples_ints
+        np.random.shuffle(train_sqa_tuples_ints)
+        np.random.shuffle(validation_sqa_tuples_ints)
+        np.random.shuffle(test_sqa_tuples_ints)
 
+        return train_sqa_tuples_ints, validation_sqa_tuples_ints, test_sqa_tuples_ints
 
-    def prepare_data_for_joint_tasks(self, data_dir):
+    def prepare_data_for_joint_tasks(self, data_dir, validation_frac, random_seed=0, vocab_dict=None):
+        np.random.seed(random_seed)
+
         train_sqa_tuples = []
+        validation_sqa_tuples = []
         test_sqa_tuples = []
 
         for task_id in self.file_partition_values['task_id']:
@@ -198,18 +248,27 @@ class bAbI:
             train_stories = self.get_stories(train_fp)
             test_stories = self.get_stories(test_fp)
 
+            np.random.shuffle(train_stories)
+            np.random.shuffle(test_stories)
+
+            split_idx = len(train_stories) - max(1, int(validation_frac * len(train_stories)))
+            train_stories = train_stories[0:split_idx]
+            validation_stories = train_stories[split_idx:]
+
             train_sqa_tuples_for_task = [sqa for story in train_stories for sqa in story.sqa_tuples]
+            validation_sqa_tuples_for_task = [sqa for story in validation_stories for sqa in story.sqa_tuples]
             test_sqa_tuples_for_task = [sqa for story in test_stories for sqa in story.sqa_tuples]
 
             train_sqa_tuples.extend(train_sqa_tuples_for_task)
+            validation_sqa_tuples.extend(validation_sqa_tuples_for_task)
             test_sqa_tuples.extend(test_sqa_tuples_for_task)
 
-        vocab_set, max_sentence_len = self.get_vocab_set_from_sqa_tuples(train_sqa_tuples + test_sqa_tuples)
-        vocab_list = list(vocab_set)
-        vocab_list.insert(0, self.unknown_token)
-        vocab_list.insert(0, self.pad_token)
+        all_sqa_tuples = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
 
-        vocab_dict = dict({w: i for i, w in enumerate(vocab_list)})
+        if vocab_dict is None:
+            vocab_dict = self.compute_vocab_dict_from_sqa_tuples(all_sqa_tuples)
+
+        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(all_sqa_tuples)
 
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
@@ -217,22 +276,66 @@ class bAbI:
         f = lambda x: self.vocab_dict[x]
 
         train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
+        validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
         test_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in test_sqa_tuples]
 
-        return train_sqa_tuples_ints, test_sqa_tuples_ints
+        np.random.shuffle(train_sqa_tuples_ints)
+        np.random.shuffle(validation_sqa_tuples_ints)
+        np.random.shuffle(test_sqa_tuples_ints)
 
+        return train_sqa_tuples_ints, validation_sqa_tuples_ints, test_sqa_tuples_ints
 
+    @staticmethod
+    def standardize_features(sqa, max_sentence_length_J, number_of_memories_M, pad_id, add_empty_memories=False):
+        sentences_ints = sqa[0]
+        question_ints = sqa[1]
+        answer_int = sqa[2]
 
+        # Per Section 4.2:
+        #    "The capacity of memory is restricted to the most recent 50 sentences."
+        #
+        # If the memory network can store M memories, we store only the M most recent sentences.
+        #
+        nr_sentences = len(sentences_ints)
+        start_idx = max(0, (nr_sentences - number_of_memories_M))
+        end_idx = nr_sentences
+        sentences_ints = sentences_ints[start_idx:end_idx]
 
+        Jpadded_sentences_ints_list = list(map(
+            lambda s: Sentence.padded_int_array(s, pad_id=pad_id, max_sentence_len=max_sentence_length_J),
+            sentences_ints))
 
+        # Per Section 4.1:
+        #     "Note that sentences are indexed in reverse order, reflecting their relative distance from the question
+        #      so that x1 is the last sentence of the story."
+        #
+        Jpadded_sentences_ints_list = Jpadded_sentences_ints_list[::-1]
 
+        Jpadded_question_ints = Sentence.padded_int_array(question_ints, pad_id=pad_id, max_sentence_len=max_sentence_length_J)
 
+        sentences_2d_array = pad_id * np.ones((number_of_memories_M, max_sentence_length_J), dtype=np.int32)
 
+        if add_empty_memories:
+            nr_sentences = len(Jpadded_sentences_ints_list)
 
+            nr_empty_memories = number_of_memories_M - nr_sentences
+            nr_empty_memories_to_intersperse = int(0.10 * nr_empty_memories)
 
+            poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences)
 
+            offset = 0
 
+            for i in range(0,nr_sentences):
+                number_of_empties_to_insert = int(np.random.poisson(poisson_rate))
 
+                offset += number_of_empties_to_insert
 
+                Jpadded_sentence_ints = Jpadded_sentences_ints_list[i]
+                sentences_2d_array[offset,:] = np.array(Jpadded_sentence_ints)
 
+        else:
+            nr_sentences = len(Jpadded_sentences_ints_list)
+            sentences_2d_array[0:nr_sentences,:] = np.array(Jpadded_sentences_ints_list, dtype=np.int32)
+
+        return sentences_2d_array, Jpadded_question_ints, answer_int
 
