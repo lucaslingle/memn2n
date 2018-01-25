@@ -13,6 +13,8 @@ Current implementation:<br>
 | Section 4     | Synthetic Question Answering experiments using the Facebook bAbI dataset.      | Done    |
 | Section 5     | Language Modeling experiments on the Penn Treebank dataset.                    | Soon!   |
 
+<br>
+
 Prerequisites
 -------------
 Install Anaconda 3, if you don't have it already.<br>
@@ -26,24 +28,28 @@ And activate the environment:
 ```
 $ source activate memn2n_env
 ```
+<br>
 
 Datasets
 --------
-Download the bAbI dataset using the link provided on the following page:
+Download the bAbI dataset using the link provided on the following page:<br>
 https://research.fb.com/downloads/babi/
-
+<br>
 
 Usage
 -----
 
 To train the memory network with 3 hops and memory size of 50, run the following:
-
-    $ python main.py --dataset_selector=babi --babi_joint=True --number_of_hops=3 --number_of_memories=50 --mode=train
-
+```
+$ python main.py --dataset_selector=babi --babi_joint=True --number_of_hops=3 --number_of_memories=50 --mode=train
+```
+<br>
 To see all configuration options, run:
+```
+$ python main.py --help
+```
 
-    $ python main.py --help
-
+And you'll see some options like this:
 ```
 usage: main.py [-h] [--dataset_selector DATASET_SELECTOR]
                [--data_dir DATA_DIR] [--babi_joint [BABI_JOINT]]
