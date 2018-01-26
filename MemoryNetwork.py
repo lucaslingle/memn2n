@@ -20,8 +20,8 @@ class MemoryNetwork:
 
         self.gradient_clip = float(gradient_clip)
 
-        self.word_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10) #tf.orthogonal_initializer()
-        self.nonword_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10)
+        self.word_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10) # tf.orthogonal_initializer()
+        self.nonword_initializer = tf.random_normal_initializer(mean=0.0, stddev=1.00)
 
         self.nr_embedding_matrices_formulas = {
             'word': {

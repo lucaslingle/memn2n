@@ -5,9 +5,6 @@ import os
 import sys
 import errno
 
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 flags = tf.app.flags
 
 # dataset configs

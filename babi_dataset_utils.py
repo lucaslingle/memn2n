@@ -222,7 +222,7 @@ class bAbI:
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
 
-        f = lambda x: self.vocab_dict[x]
+        f = lambda x: self.vocab_dict[x] if x in self.vocab_dict else self.vocab_dict[self.unknown_token]
 
         train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
         validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
@@ -273,7 +273,7 @@ class bAbI:
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
 
-        f = lambda x: self.vocab_dict[x]
+        f = lambda x: self.vocab_dict[x] if x in self.vocab_dict else self.vocab_dict[self.unknown_token]
 
         train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
         validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
@@ -318,8 +318,8 @@ class bAbI:
         if add_empty_memories:
             nr_sentences = len(Jpadded_sentences_ints_list)
 
-            empty_spaces = number_of_memories_M - nr_sentences
-            nr_empty_memories_to_intersperse = min(empty_spaces, int(0.10 * nr_sentences))
+            nr_empty_memories = number_of_memories_M - nr_sentences
+            nr_empty_memories_to_intersperse = int(0.10 * nr_empty_memories)
 
             poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences)
 
@@ -327,8 +327,6 @@ class bAbI:
 
             for i in range(0,nr_sentences):
                 number_of_empties_to_insert = int(np.random.poisson(poisson_rate))
-                if offset + number_of_empties_to_insert + (nr_sentences - i - 1) > number_of_memories_M:
-                    number_of_empties_to_insert = 0
 
                 offset += number_of_empties_to_insert
 
