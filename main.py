@@ -65,7 +65,11 @@ def main():
         babi = bb.bAbI()
         learning_rate = FLAGS.initial_learning_rate
 
-        candidate_vocab_fp = os.path.join(FLAGS.vocab_dir, 'vocab_{}.pkl'.format(FLAGS.dataset_selector))
+        candidate_vocab_filename = 'vocab_{}_{}.pkl'.format(
+            FLAGS.dataset_selector,
+            FLAGS.data_dir.strip("/").split("/")[-1]
+        )
+        candidate_vocab_fp = os.path.join(FLAGS.vocab_dir, candidate_vocab_filename)
         vocab_fp_exists = os.path.exists(candidate_vocab_fp)
 
         # prepare vocab if it doesn't exist
@@ -155,12 +159,20 @@ def main():
                             epoch, i, mean_cross_entropy, acc
                         ))
 
-                    if (epoch > 0) and (epoch % FLAGS.anneal_epochs) == 0:
+                    if ((epoch + 1) % FLAGS.anneal_epochs) == 0:
                         learning_rate *= FLAGS.anneal_const
-                    if (epoch > 0) and (epoch % FLAGS.save_freq_epochs) == 0:
-                        model.save(sess, FLAGS.checkpoint_dir)
+                    if ((epoch + 1) % FLAGS.save_freq_epochs) == 0:
+                        model.save(
+                            session=sess,
+                            checkpoint_dir=FLAGS.checkpoint_dir,
+                            checkpoint_name='{}_epoch{}'.format(FLAGS.model_name, epoch)
+                        )
 
-                model.save(sess, FLAGS.checkpoint_dir)
+                model.save(
+                    session=sess,
+                    checkpoint_dir=FLAGS.checkpoint_dir,
+                    checkpoint_name='{}_epoch{}'.format(FLAGS.model_name, FLAGS.epochs)
+                )
 
                 print("finished training!")
 
