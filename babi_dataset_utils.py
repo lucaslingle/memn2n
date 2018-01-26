@@ -318,8 +318,8 @@ class bAbI:
         if add_empty_memories:
             nr_sentences = len(Jpadded_sentences_ints_list)
 
-            nr_empty_memories = number_of_memories_M - nr_sentences
-            nr_empty_memories_to_intersperse = int(0.10 * nr_empty_memories)
+            empty_spaces = number_of_memories_M - nr_sentences
+            nr_empty_memories_to_intersperse = min(empty_spaces, int(0.10 * nr_sentences))
 
             poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences)
 
@@ -327,6 +327,8 @@ class bAbI:
 
             for i in range(0,nr_sentences):
                 number_of_empties_to_insert = int(np.random.poisson(poisson_rate))
+                if offset + number_of_empties_to_insert + (nr_sentences - i - 1) > number_of_memories_M:
+                    number_of_empties_to_insert = 0
 
                 offset += number_of_empties_to_insert
 
