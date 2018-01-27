@@ -7,8 +7,7 @@ class MemoryNetwork:
                  batch_size, number_of_memories, max_sentence_len,
                  gradient_clip,
                  weight_tying_scheme='adj',
-                 position_encoding=True,
-                 linear_start=False):
+                 position_encoding=True):
 
         self.V = int(vocab_size)
         self.d = int(embedding_dim)
@@ -20,8 +19,11 @@ class MemoryNetwork:
 
         self.gradient_clip = float(gradient_clip)
 
-        self.word_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10) # tf.orthogonal_initializer()
-        self.nonword_initializer = tf.random_normal_initializer(mean=0.0, stddev=1.00)
+        self.weight_tying_scheme = weight_tying_scheme
+        self.position_encoding = position_encoding
+
+        self.word_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10)   #tf.orthogonal_initializer(gain=0.10)
+        self.nonword_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10)
 
         self.nr_embedding_matrices_formulas = {
             'word': {
@@ -97,68 +99,91 @@ class MemoryNetwork:
             'temporal': [self.build_temporal_embedding_matrix(idx) for idx in range(self.nr_embedding_matrices['temporal'])]
         }
 
-        self.attention_type = {
+        self.sentence_position_encoders = {
+            'position_encoding': self.build_position_encoding(),
+            'bag_of_words': self.build_bag_of_words_encoding()
+        }
+
+        self.attention_mechanisms = {
             'softmax': lambda memory_scores: self.build_softmax_attention(memory_scores),
             'linear': lambda memory_scores: self.build_linear_attention(memory_scores)
         }
 
-        self.attention_normalizer = self.attention_type['linear' if linear_start else 'softmax']
-
-        self.layer_transition_operator = {
+        self.layer_transition_operators = {
             'adj': tf.eye(self.d),
             'rnnlike': self.build_H_mapping(scope_name='rnnlike'),
             'allsame': tf.eye(self.d),
             'alldiff': self.build_H_mapping(scope_name='alldiff')
         }
 
-        self.H = self.layer_transition_operator[weight_tying_scheme]
-        self.l = self.build_position_encoding() if position_encoding else self.build_bag_of_words_encoding()
+        # build placeholders
+        self.sentences_ints_batch, self.question_ints_batch, self.answer_ints_batch = self.build_data_inputs()
+        self.linear_start_indicator, self.learning_rate = self.build_control_inputs()
 
-        B_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['B']
-        self.B = self.embedding_matrices['word'][B_retrieval_idx]
+        self.encoding_type = 'position_encoding' if position_encoding else 'bag_of_words'
+        self.l = self.sentence_position_encoders[self.encoding_type]
 
-        W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
-        self.W = tf.transpose(self.embedding_matrices['word'][W_retrieval_idx])
+        # encode questions
+        u_batch = self.get_encoded_questions(weight_tying_scheme, self.question_ints_batch)
 
-        self.learning_rate, self.sentences_ints_batch, self.question_ints_batch, self.answer_ints_batch = self.build_inputs()
-        u_batch = self.get_encoded_questions(self.question_ints_batch)
-
+        # run query against memory network
         memory_output_batch = self.build_and_stack_memory_layers(
             weight_tying_scheme,
             self.sentences_ints_batch,
             u_batch)
 
-        self.answer_logits_batch = tf.matmul(memory_output_batch, self.W)          # [batch_size, d] x [d, V] = [batch_size, V]
-        self.answer_probabilities_batch = tf.nn.softmax(self.answer_logits_batch)  # [batch_size, V]
+        # decode to get answer logits
+        self.answer_logits_batch, self.answer_probs_batch = self.get_answer_logits(weight_tying_scheme, memory_output_batch)
 
+        # build loss and other metrics
         self.answer_onehot_labels_batch = tf.nn.embedding_lookup(tf.eye(self.V), self.answer_ints_batch)
 
-        self.summed_cross_entropy_batch, self.acc_batch, self.err_batch = self.build_loss_func(self.answer_logits_batch,
-                                                                                               self.answer_onehot_labels_batch)
+        self.summed_cross_entropy_batch, self.acc_batch, self.err_batch = self.build_loss_func(
+            self.answer_logits_batch, self.answer_onehot_labels_batch
+        )
 
+        # build training operation
         self.train_op = self.build_training_op(self.summed_cross_entropy_batch,
                                                learning_rate=self.learning_rate,
                                                gradient_clip=self.gradient_clip)
 
+        # build a saver for all this
         self.saver = tf.train.Saver()
 
-
-    def build_inputs(self):
+    def build_control_inputs(self):
+        linear_start_indicator = tf.placeholder(tf.bool)
         learning_rate = tf.placeholder(tf.float32)
+
+        return linear_start_indicator, learning_rate
+
+    def build_data_inputs(self):
         sentences = tf.placeholder(tf.int32, [self.batch_size, self.M, self.J])
         question = tf.placeholder(tf.int32, [self.batch_size, self.J])
         answer = tf.placeholder(tf.int32, [self.batch_size])
-        return learning_rate, sentences, question, answer
+        return sentences, question, answer
 
-    def get_encoded_questions(self, q_batch):
-        B_word_embeddings = tf.nn.embedding_lookup(self.B, q_batch)  # [batch_size, J, d]
+    def get_encoded_questions(self, weight_tying_scheme, q_batch):
 
-        l_3dim = tf.expand_dims(self.l, 0)                           # [1, J, d]
-        B_word_embeddings = B_word_embeddings * l_3dim               # [batch_size, J, d] x [1, J, d] = [batch_size, J, d]
+        B_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['B']
+        B = self.embedding_matrices['word'][B_retrieval_idx]
 
-        u_batch = tf.reduce_sum(B_word_embeddings, 1)                # [batch_size, d]
+        B_word_embeddings = tf.nn.embedding_lookup(B, q_batch)  # [batch_size, J, d]
+
+        l_3dim = tf.expand_dims(self.l, 0)                      # [1, J, d]
+        B_word_embeddings = B_word_embeddings * l_3dim          # [batch_size, J, d] x [1, J, d] = [batch_size, J, d]
+
+        u_batch = tf.reduce_sum(B_word_embeddings, 1)           # [batch_size, d]
 
         return u_batch
+
+    def get_answer_logits(self, weight_tying_scheme, memory_output_batch):
+        W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
+        W = tf.transpose(self.embedding_matrices['word'][W_retrieval_idx])
+
+        answer_logits_batch = tf.matmul(memory_output_batch, W)          # [batch_size, d] x [d, V] = [batch_size, V]
+        answer_probabilities_batch = tf.nn.softmax(answer_logits_batch)  # [batch_size, V]
+
+        return answer_logits_batch, answer_probabilities_batch
 
     def build_and_stack_memory_layers(self, weight_tying_scheme, input_sentences_ints_batch, u_batch):
         layer_results = [u_batch]
@@ -179,6 +204,8 @@ class MemoryNetwork:
             T_C_retrieval_idx = self.routing_formulas['temporal'][weight_tying_scheme]['T_C'](i)
             T_C = self.embedding_matrices['temporal'][T_C_retrieval_idx]
 
+            H = self.layer_transition_operators[weight_tying_scheme]
+
             # now we call a function that will:
             #  - compute memory layer i's contents, using the input sentences and the embedding matrices.
             #  - run query against memory layer i to obtain that layer's response
@@ -189,7 +216,8 @@ class MemoryNetwork:
                 A=A,
                 C=C,
                 T_A=T_A,
-                T_C=T_C
+                T_C=T_C,
+                H=H
             )
 
             layer_results.append(u_next)
@@ -197,7 +225,7 @@ class MemoryNetwork:
         return layer_results[-1]
 
     def build_memory_layer(self, input_sentences_ints_batch, u_batch,
-                           A, C, T_A, T_C):
+                           A, C, T_A, T_C, H):
 
         A_word_embeddings = tf.nn.embedding_lookup(A, input_sentences_ints_batch)  # [batch_size, M, J, d]
         C_word_embeddings = tf.nn.embedding_lookup(C, input_sentences_ints_batch)  # [batch_size, M, J, d]
@@ -217,14 +245,14 @@ class MemoryNetwork:
         memory_scores = tf.matmul(m_A, u_aug)              # [batch_size, M, d] x [batch_size, d, 1] = [batch_size, M, 1]
         memory_scores = tf.squeeze(memory_scores, [2])     # [batch_size, M]
 
-        p = self.attention_normalizer(memory_scores)       # [batch_size, M]
+        p = self.attention_mechanism(memory_scores)        # [batch_size, M]
 
         p = tf.reshape(p, [self.batch_size, 1, self.M])    # [batch_size, 1, M]
 
         o = tf.matmul(p, m_C)                              # [batch_size, 1, M] x [batch_size, M, d] = [batch_size, 1, d]
         o = tf.squeeze(o, [1])                             # [batch_size, d]
 
-        u_next = tf.matmul(o, self.H) + u_batch            # [batch_size, d]
+        u_next = tf.matmul(o, H) + u_batch                 # [batch_size, d]
 
         return u_next
 
@@ -261,7 +289,7 @@ class MemoryNetwork:
             return H_matrix
 
     def build_bag_of_words_encoding(self):
-        return tf.constant(tf.ones([self.J, self.d]))
+        return tf.ones([self.J, self.d])
 
     def build_position_encoding(self):
         def l_kj(k, j):
@@ -281,6 +309,18 @@ class MemoryNetwork:
 
     def build_linear_attention(self, memory_scores):
         return memory_scores
+
+    def attention_mechanism(self, memory_scores):
+        # This function exists so that we can change from attention being linear to softmax
+        # During so-called 'Linear Start' training
+
+        attn = tf.cond(
+            tf.equal(self.linear_start_indicator, tf.constant(True)),
+            lambda: self.attention_mechanisms['linear'](memory_scores),
+            lambda: self.attention_mechanisms['softmax'](memory_scores)
+        )
+
+        return attn
 
     def build_loss_func(self, answer_logits, answers_one_hot):
         cross_entropy_batch = tf.nn.softmax_cross_entropy_with_logits(logits=answer_logits, labels=answers_one_hot)
