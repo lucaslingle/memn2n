@@ -5,9 +5,6 @@ import os
 import sys
 import errno
 
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 flags = tf.app.flags
 
 # dataset configs
@@ -53,11 +50,6 @@ def compute_and_save_babi_vocab(data_dir, save_fp):
 
     babi.save_vocab_dict_to_file(vocab_dict=babi.vocab_dict, vocab_fp=save_fp)
 
-    # load our vocab dictionary
-    vocab_fp_exists = os.path.exists(save_fp)
-    if not vocab_fp_exists:
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), vocab_fp_exists)
-
 def main():
 
     if FLAGS.dataset_selector == 'babi':
@@ -65,7 +57,12 @@ def main():
         babi = bb.bAbI()
         learning_rate = FLAGS.initial_learning_rate
 
-        candidate_vocab_fp = os.path.join(FLAGS.vocab_dir, 'vocab_{}.pkl'.format(FLAGS.dataset_selector))
+        candidate_vocab_filename = 'vocab_{}_{}_{}.pkl'.format(
+            FLAGS.dataset_selector,
+            FLAGS.data_dir.strip("/").split("/")[-1],
+            'joint' if FLAGS.babi_joint else 'task_{}'.format(FLAGS.babi_task_id)
+        )
+        candidate_vocab_fp = os.path.join(FLAGS.vocab_dir, candidate_vocab_filename)
         vocab_fp_exists = os.path.exists(candidate_vocab_fp)
 
         # prepare vocab if it doesn't exist
@@ -90,15 +87,14 @@ def main():
 
             # instantiate the model
             model = MemoryNetwork(vocab_size=len(vocab_dict),
-                              embedding_dim=FLAGS.embedding_dim,
-                              number_of_hops=FLAGS.number_of_hops,
-                              batch_size=FLAGS.batch_size,
-                              number_of_memories=FLAGS.number_of_memories,
-                              max_sentence_len=babi.max_sentence_len,
-                              gradient_clip=FLAGS.gradient_clip,
-                              weight_tying_scheme=FLAGS.weight_tying_scheme,
-                              position_encoding=FLAGS.position_encoding,
-                              linear_start=FLAGS.linear_start)
+                                  embedding_dim=FLAGS.embedding_dim,
+                                  number_of_hops=FLAGS.number_of_hops,
+                                  batch_size=FLAGS.batch_size,
+                                  number_of_memories=FLAGS.number_of_memories,
+                                  max_sentence_len=babi.max_sentence_len,
+                                  gradient_clip=FLAGS.gradient_clip,
+                                  weight_tying_scheme=FLAGS.weight_tying_scheme,
+                                  position_encoding=FLAGS.position_encoding)
 
         with tf.Session(graph=graph) as sess:
             sess.run(tf.global_variables_initializer())
@@ -113,7 +109,7 @@ def main():
 
             if FLAGS.mode == 'train':
 
-                for epoch in range(0, FLAGS.epochs):
+                for epoch in range(1, FLAGS.epochs + 1):
                     for i in range(0, nr_training_examples, FLAGS.batch_size):
 
                         if (i + FLAGS.batch_size) > nr_training_examples:
@@ -138,10 +134,11 @@ def main():
                         sentences_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
 
                         feed_dict = {
+                            model.linear_start_indicator: FLAGS.linear_start,
+                            model.learning_rate: learning_rate,
                             model.sentences_ints_batch: sentences_ints,
                             model.question_ints_batch: question_ints,
-                            model.answer_ints_batch: answer_ints,
-                            model.learning_rate: learning_rate
+                            model.answer_ints_batch: answer_ints
                         }
 
                         _, loss, acc = sess.run(
@@ -155,16 +152,24 @@ def main():
                             epoch, i, mean_cross_entropy, acc
                         ))
 
-                    if (epoch > 0) and (epoch % FLAGS.anneal_epochs) == 0:
+                    if epoch > 1 and (epoch % FLAGS.anneal_epochs) == 0:
                         learning_rate *= FLAGS.anneal_const
-                    if (epoch > 0) and (epoch % FLAGS.save_freq_epochs) == 0:
-                        model.save(sess, FLAGS.checkpoint_dir)
+                    if epoch > 1 and (epoch % FLAGS.save_freq_epochs) == 0:
+                        model.save(
+                            session=sess,
+                            checkpoint_dir=FLAGS.checkpoint_dir,
+                            checkpoint_name='{}_epoch{}'.format(FLAGS.model_name, epoch)
+                        )
 
-                model.save(sess, FLAGS.checkpoint_dir)
+                model.save(
+                    session=sess,
+                    checkpoint_dir=FLAGS.checkpoint_dir,
+                    checkpoint_name='{}_epoch{}'.format(FLAGS.model_name, FLAGS.epochs)
+                )
 
                 print("finished training!")
 
-                sum_cross_entropy = 0
+                sum_cross_entropy = 0.0
                 nr_correct = 0
 
                 if nr_validation_examples == 0:
@@ -195,14 +200,15 @@ def main():
                     sentences_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
 
                     feed_dict = {
+                        model.linear_start_indicator: FLAGS.linear_start,
                         model.learning_rate: 0.0,
                         model.sentences_ints_batch: sentences_ints,
                         model.question_ints_batch: question_ints,
                         model.answer_ints_batch: answer_ints
                     }
 
-                    _, loss, acc = sess.run(
-                        [model.train_op, model.summed_cross_entropy_batch, model.acc_batch],
+                    loss, acc = sess.run(
+                        [model.summed_cross_entropy_batch, model.acc_batch],
                         feed_dict=feed_dict
                     )
 
@@ -215,8 +221,8 @@ def main():
                         i, mean_cross_entropy, acc
                     ))
 
-                mean_cross_entropy = sum_cross_entropy / float(nr_validation_examples)
-                accuracy = nr_correct / float(nr_validation_examples)
+                mean_cross_entropy = sum_cross_entropy / float(nr_validation_examples - (nr_validation_examples % FLAGS.batch_size))
+                accuracy = nr_correct / float(nr_validation_examples - (nr_validation_examples % FLAGS.batch_size))
                 error_rate = 1.0 - accuracy
 
                 print("mean cross_entropy on validation set: {}, \naccuracy: {}, \nerror_rate{}".format(
@@ -225,7 +231,7 @@ def main():
 
             if FLAGS.mode == 'test':
 
-                sum_cross_entropy = 0
+                sum_cross_entropy = 0.0
                 nr_correct = 0
 
                 for epoch in range(0, 1):
@@ -253,14 +259,15 @@ def main():
                         sentences_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
 
                         feed_dict = {
+                            model.linear_start_indicator: FLAGS.linear_start,
                             model.learning_rate: 0.0,
                             model.sentences_ints_batch: sentences_ints,
                             model.question_ints_batch: question_ints,
                             model.answer_ints_batch: answer_ints
                         }
 
-                        _, loss, acc = sess.run(
-                            [model.train_op, model.summed_cross_entropy_batch, model.acc_batch],
+                        loss, acc = sess.run(
+                            [model.summed_cross_entropy_batch, model.acc_batch],
                             feed_dict=feed_dict
                         )
 
@@ -273,8 +280,8 @@ def main():
                             i, mean_cross_entropy, acc
                         ))
 
-                mean_cross_entropy = sum_cross_entropy / float(nr_test_examples)
-                accuracy = nr_correct / float(nr_test_examples)
+                mean_cross_entropy = sum_cross_entropy / float(nr_test_examples - (nr_test_examples % FLAGS.batch_size))
+                accuracy = nr_correct / float(nr_test_examples - (nr_test_examples % FLAGS.batch_size))
                 error_rate = 1.0 - accuracy
 
                 print("mean cross_entropy on test set: {}, \naccuracy: {}, \nerror_rate{}".format(

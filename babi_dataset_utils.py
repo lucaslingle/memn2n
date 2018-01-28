@@ -2,6 +2,7 @@ import os
 import re
 import numpy as np
 import pickle
+import math
 
 class Sentence:
     def __init__(self, string):
@@ -140,6 +141,8 @@ class bAbI:
                     story = Story()
                 story.sentences_update(sentence)
 
+        stories.append(story)
+
         return stories
 
     def compute_max_sentence_len_from_sqa_tuples(self, sqa_tuples):
@@ -192,7 +195,7 @@ class bAbI:
             print("[*] Successfully loaded vocab dictionary from {}".format(vocab_fp))
             return vocab_dict
 
-    def prepare_data_for_single_task(self, data_dir, task_id, validation_frac, random_seed=0, vocab_dict=None):
+    def prepare_data_for_single_task(self, data_dir, task_id, validation_frac, random_seed=1, vocab_dict=None):
         np.random.seed(random_seed)
 
         train_fp = self.get_fp_for_task(data_dir, 'train', task_id)
@@ -205,8 +208,9 @@ class bAbI:
         np.random.shuffle(test_stories)
 
         split_idx = len(train_stories) - max(1, int(validation_frac * len(train_stories)))
-        train_stories = train_stories[0:split_idx]
-        validation_stories = train_stories[split_idx:]
+        _train_stories_tmp = train_stories[:]
+        train_stories = _train_stories_tmp[0:split_idx]
+        validation_stories = _train_stories_tmp[split_idx:]
 
         train_sqa_tuples = [sqa for story in train_stories for sqa in story.sqa_tuples]
         validation_sqa_tuples = [sqa for story in validation_stories for sqa in story.sqa_tuples]
@@ -222,7 +226,7 @@ class bAbI:
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
 
-        f = lambda x: self.vocab_dict[x]
+        f = lambda x: self.vocab_dict[x] if x in self.vocab_dict else self.vocab_dict[self.unknown_token]
 
         train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
         validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
@@ -234,7 +238,7 @@ class bAbI:
 
         return train_sqa_tuples_ints, validation_sqa_tuples_ints, test_sqa_tuples_ints
 
-    def prepare_data_for_joint_tasks(self, data_dir, validation_frac, random_seed=0, vocab_dict=None):
+    def prepare_data_for_joint_tasks(self, data_dir, validation_frac, random_seed=1, vocab_dict=None):
         np.random.seed(random_seed)
 
         train_sqa_tuples = []
@@ -252,8 +256,9 @@ class bAbI:
             np.random.shuffle(test_stories)
 
             split_idx = len(train_stories) - max(1, int(validation_frac * len(train_stories)))
-            train_stories = train_stories[0:split_idx]
-            validation_stories = train_stories[split_idx:]
+            _train_stories_tmp = train_stories[:]
+            train_stories = _train_stories_tmp[0:split_idx]
+            validation_stories = _train_stories_tmp[split_idx:]
 
             train_sqa_tuples_for_task = [sqa for story in train_stories for sqa in story.sqa_tuples]
             validation_sqa_tuples_for_task = [sqa for story in validation_stories for sqa in story.sqa_tuples]
@@ -273,7 +278,7 @@ class bAbI:
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
 
-        f = lambda x: self.vocab_dict[x]
+        f = lambda x: self.vocab_dict[x] if x in self.vocab_dict else self.vocab_dict[self.unknown_token]
 
         train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
         validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
@@ -318,17 +323,32 @@ class bAbI:
         if add_empty_memories:
             nr_sentences = len(Jpadded_sentences_ints_list)
 
-            nr_empty_memories = number_of_memories_M - nr_sentences
-            nr_empty_memories_to_intersperse = int(0.10 * nr_empty_memories)
+            # This implementation is based on my understanding of the paper and the official implementation.
+            # The details in the paper were ambiguous, and this is my attempt to understand it, and the matlab code from Facebook.
+            #
+            # Other than the official matlab implementation, I have not found anyone else who has implemented random noise,
+            # so I don't have any other python code to check this against.
+            #
+            # For matlab code, see:
+            # https://github.com/facebook/MemNN/blob/master/MemN2N-babi-matlab/train.m#L31
 
-            poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences)
+            extra_spaces = max(0, number_of_memories_M - nr_sentences)
+            max_nr_empty_memories_to_intersperse = min(extra_spaces, int(math.ceil(0.10 * nr_sentences)))
+            nr_empty_memories_to_intersperse = 0
+
+            if max_nr_empty_memories_to_intersperse > 0:
+                nr_empty_memories_to_intersperse = np.random.randint(low=0, high=max_nr_empty_memories_to_intersperse)
 
             offset = 0
 
             for i in range(0,nr_sentences):
-                number_of_empties_to_insert = int(np.random.poisson(poisson_rate))
+                poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences - i)
 
-                offset += number_of_empties_to_insert
+                number_of_empties_before_next_sentence = int(np.random.poisson(poisson_rate))
+                number_of_empties_before_next_sentence = min(nr_empty_memories_to_intersperse, number_of_empties_before_next_sentence)
+                nr_empty_memories_to_intersperse -= number_of_empties_before_next_sentence
+
+                offset += number_of_empties_before_next_sentence
 
                 Jpadded_sentence_ints = Jpadded_sentences_ints_list[i]
                 sentences_2d_array[offset,:] = np.array(Jpadded_sentence_ints)
