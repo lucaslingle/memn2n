@@ -323,17 +323,32 @@ class bAbI:
         if add_empty_memories:
             nr_sentences = len(Jpadded_sentences_ints_list)
 
-            nr_empty_memories_to_intersperse = min(number_of_memories_M - nr_sentences, int(math.ceil(0.10 * nr_sentences)))
-            poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences)
+            # This implementation is based on my understanding of the paper and the official implementation.
+            # The details in the paper were ambiguous, and this is my attempt to understand it, and the matlab code from Facebook.
+            #
+            # Other than the official matlab implementation, I have not found anyone else who has implemented random noise,
+            # so I don't have any other python code to check this against.
+            #
+            # For matlab code, see:
+            # https://github.com/facebook/MemNN/blob/master/MemN2N-babi-matlab/train.m#L31
+
+            extra_spaces = max(0, number_of_memories_M - nr_sentences)
+            max_nr_empty_memories_to_intersperse = min(extra_spaces, int(math.ceil(0.10 * nr_sentences)))
+            nr_empty_memories_to_intersperse = 0
+
+            if max_nr_empty_memories_to_intersperse > 0:
+                nr_empty_memories_to_intersperse = np.random.randint(low=0, high=max_nr_empty_memories_to_intersperse)
 
             offset = 0
 
             for i in range(0,nr_sentences):
-                number_of_empties_to_insert = int(np.random.poisson(poisson_rate))
-                if offset + number_of_empties_to_insert + (nr_sentences - i - 1) >= number_of_memories_M:
-                    number_of_empties_to_insert = 0
+                poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences - i)
 
-                offset += number_of_empties_to_insert
+                number_of_empties_before_next_sentence = int(np.random.poisson(poisson_rate))
+                number_of_empties_before_next_sentence = min(nr_empty_memories_to_intersperse, number_of_empties_before_next_sentence)
+                nr_empty_memories_to_intersperse -= number_of_empties_before_next_sentence
+
+                offset += number_of_empties_before_next_sentence
 
                 Jpadded_sentence_ints = Jpadded_sentences_ints_list[i]
                 sentences_2d_array[offset,:] = np.array(Jpadded_sentence_ints)
