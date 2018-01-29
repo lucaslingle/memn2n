@@ -14,6 +14,7 @@ flags.DEFINE_boolean("babi_joint", False, "run jointly on all bAbI tasks, if app
 flags.DEFINE_integer("babi_task_id", 1, "bAbI task to train on, if applicable [1]")
 flags.DEFINE_float("validation_frac", 0.1, "train-validation split [0.1]")
 flags.DEFINE_string("vocab_dir", 'vocab/', "directory to persist vocab-int dictionary [vocab/]")
+flags.DEFINE_string("vocab_filename", "", "optional flag to allow us to load a specific vocab file")
 
 # checkpoint configs
 flags.DEFINE_string("checkpoint_dir", "/Users/lucaslingle/git/memn2n/checkpoints/", "checkpoints path [/Users/lucaslingle/git/memn2n/checkpoints/]")
@@ -41,6 +42,20 @@ flags.DEFINE_boolean("random_noise", False, "random noise (insert empty memories
 
 FLAGS = flags.FLAGS
 
+
+def get_vocab_filename_from_settings(FLAGS):
+    if len(FLAGS.vocab_filename) > 0:
+        candidate_vocab_filename = FLAGS.vocab_filename
+        return candidate_vocab_filename
+
+    candidate_vocab_filename = 'vocab_{}_{}_{}.pkl'.format(
+            FLAGS.dataset_selector,
+            FLAGS.data_dir.strip("/").split("/")[-1],
+            'joint' if FLAGS.babi_joint else 'task_{}'.format(FLAGS.babi_task_id)
+    )
+
+    return candidate_vocab_filename
+
 def compute_and_save_babi_vocab(data_dir, save_fp):
 
     babi = bb.bAbI()
@@ -57,11 +72,8 @@ def main():
         babi = bb.bAbI()
         learning_rate = FLAGS.initial_learning_rate
 
-        candidate_vocab_filename = 'vocab_{}_{}_{}.pkl'.format(
-            FLAGS.dataset_selector,
-            FLAGS.data_dir.strip("/").split("/")[-1],
-            'joint' if FLAGS.babi_joint else 'task_{}'.format(FLAGS.babi_task_id)
-        )
+        candidate_vocab_filename = get_vocab_filename_from_settings(FLAGS)
+
         candidate_vocab_fp = os.path.join(FLAGS.vocab_dir, candidate_vocab_filename)
         vocab_fp_exists = os.path.exists(candidate_vocab_fp)
 
@@ -225,7 +237,7 @@ def main():
                 accuracy = nr_correct / float(nr_validation_examples - (nr_validation_examples % FLAGS.batch_size))
                 error_rate = 1.0 - accuracy
 
-                print("mean cross_entropy on validation set: {}, \naccuracy: {}, \nerror_rate{}".format(
+                print("mean cross_entropy on validation set: {}, \naccuracy: {}, \nerror_rate: {}".format(
                     mean_cross_entropy, accuracy, error_rate
                 ))
 
@@ -284,7 +296,7 @@ def main():
                 accuracy = nr_correct / float(nr_test_examples - (nr_test_examples % FLAGS.batch_size))
                 error_rate = 1.0 - accuracy
 
-                print("mean cross_entropy on test set: {}, \naccuracy: {}, \nerror_rate{}".format(
+                print("mean cross_entropy on test set: {}, \naccuracy: {}, \nerror_rate: {}".format(
                     mean_cross_entropy, accuracy, error_rate
                 ))
 
