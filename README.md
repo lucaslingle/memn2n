@@ -127,3 +127,66 @@ optional arguments:
                         temporal embedding) [False]
 
 ```
+
+Replicating the results in the paper
+------------------------------------
+
+For the bAbI tasks, the best joint training result on the 1k dataset used a 3-hop model with Position Encoding (PE), Linear Start (LS), and Random Noise (RN).
+
+- For joint training, the authors use 60 epochs. 
+- Empirically, I have found that 20 epochs suffices for the linear start component. 
+- The authors use 15 epochs per annealing, and anneal by half each time. 
+- During linear start, the initial learning rate is 0.005. 
+- During the component where softmaxes are used, the authors use an initial learning rate of 0.01. 
+- The random noise must be interspersed uniformly throughout the nonempty memories, but must be capped at a particular level. 
+  This implementation achieves this by using a random permutation to generate the target memory locations of the nonempty memories.  
+
+```
+# linear start component
+
+python main.py \
+  --dataset_selector=babi \
+  --data_dir=datasets/bAbI/tasks_1-20_v1-2/en/ \
+  --babi_joint=True \
+  --position_encoding=True \
+  --linear_start=True \
+  --initial_learning_rate=0.005 \
+  --random_noise=True \
+  --epochs=20 \
+  --embedding_dim=50 \
+  --anneal_epochs=15 \
+  --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
+  --mode=train \
+  --load=False
+
+# after this runs, run the training with softmaxes reintroduced:
+
+python main.py \
+  --dataset_selector=babi \
+  --data_dir=datasets/bAbI/tasks_1-20_v1-2/en/ \
+  --babi_joint=True \
+  --position_encoding=True \
+  --linear_start=False \
+  --initial_learning_rate=0.01 \
+  --random_noise=True \
+  --epochs=40 \
+  --embedding_dim=50 \
+  --anneal_epochs=15 \
+  --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
+  --mode=train \
+  --load=True
+
+# and test on the joint bAbI tasks by running
+
+python main.py \
+  --dataset_selector=babi \
+  --data_dir=datasets/bAbI/tasks_1-20_v1-2/en/ \
+  --babi_joint=True \
+  --position_encoding=True \
+  --linear_start=False \
+  --random_noise=False \
+  --embedding_dim=50 \
+  --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
+  --mode=test \
+  --load=True
+```
