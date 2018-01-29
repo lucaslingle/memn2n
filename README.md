@@ -149,21 +149,22 @@ For the bAbI tasks, the best performing model on the 1k dataset, in terms of mea
 - Position Encoding (PE)
 - Linear Start (LS)
 - Random Noise (RN)
-- jointly trained on all 20 bAbI tasks. 
+- joint training on all 20 bAbI tasks 
 - 60 epochs
 - 15 epochs per annealing
 - 0.5 annealing constant
-- linear phase of LS training ends when the validation error rate stops falling 
+- LS training: the linear phase ends when the validation error rate stops falling 
+- LS training: 0.005 initial learning rate during the linear phase
+- LS training: 0.01 initial learning rate during the softmax phase
 <br>
 
-The script to implement this configuration can be found below:  
-<br>
+A script to train a model with this configuration can be found below:  
 
 <details>
   <summary>Click to expand</summary>
 
 ```
-# linear start component
+# Linear Start: linear phase
 
 python main.py \
   --dataset_selector=babi \
@@ -180,7 +181,7 @@ python main.py \
   --mode=train \
   --load=False
 
-# after this runs, run the training with softmaxes reintroduced:
+# Linear Start: softmax phase
 
 python main.py \
   --dataset_selector=babi \
@@ -197,7 +198,7 @@ python main.py \
   --mode=train \
   --load=True
 
-# and test on the joint bAbI tasks by running
+# Test the trained model on the joint bAbI tasks:
 
 python main.py \
   --dataset_selector=babi \
@@ -214,10 +215,8 @@ python main.py \
 </details>
 <br>
 
-
 In addition, there were some ambiguities in the paper, and the script above resolves them, in what I believe to be the correct way. 
-You can find the details of my thinking below.  
-<br>
+You can find the details of my thinking below.
 
 <details>
   <summary>Click to expand</summary>
