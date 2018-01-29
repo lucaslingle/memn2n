@@ -160,9 +160,6 @@ For the bAbI tasks, the best performing model on the 1k dataset, in terms of mea
 
 A script to train a model with this configuration can be found below:  
 
-<details>
-  <summary>Click to expand</summary>
-
 ```
 # Linear Start: linear phase
 
@@ -212,46 +209,100 @@ python main.py \
   --mode=test \
   --load=True
 ```
-</details>
 <br>
 
 In addition, there were some ambiguities in the paper, and the script above resolves them, in what I believe to be the correct way. 
-You can find the details of my thinking below.
+You can find the details of my thinking below. It's written a bit like an FAQ. 
 
 <details>
-  <summary>Click to expand</summary>
+  <summary>view details</summary>
 
 ```
 
 1. - Ambiguity: 
-     What is the frequency that the validation error rate should be checked, when deciding when to end the linear phase. 
+     What is the frequency that the validation error rate should be checked, when deciding 
+     when to end the linear phase of LS training?
 
-   - Resolution: 
-     I checked after every epoch. Empirically, I have found that 20 epochs works fairly well for the linear phase of LS training.
+   - Resolution:
+     This implementation doesn't automatically switch from linear to softmax during LS training, 
+     so this isn't something I had to resolve in order to get the code running. 
+
+     Once I add some kind of automatic handoff between the two phases of LS training, I expect to have a better answer. 
+
+     For now, I would suggest just using 20 epochs for the linear phase, during joint training on the 1k dataset.
+     It seems to work well.
+
 
 2. - Ambiguity: 
-     The paper asserts, without any caveats, that they use an initial learning rate of 0.01. 
-     The paper asserts later on that during the linear training phase of LS training, the initial learning rate is 0.005. 
-     What learning rate is used during the softmax phase of LS training? 
-     Is it the annealed value from the linear training phase, or is it 0.01?
+     In section 4.2, the paper states unconditionally that they use an initial learning rate of 0.01. 
+     Shortly thereafter, the paper describes a two-stage process and says "we refer to this as LS training". 
+     The paper then says that "in LS training, the initial learning rate is set to 0.005." 
 
-   - Resolution: 
-     Empirically, I have found that the softmax training phase of LS training requires a higher learning rate than the annealed rate from the linear training phase.
-     In addition, Facebook's official implementation appears to use a separate learning rate for the softmax training phase of LS training.
-     I have therefore opted to use an initial learning rate of 0.01 during the softmax training phase of LS training.
+     Taken together, this seems to imply that the term "LS training" refers to the two-stage training process,
+     and that the initial learning rate of this two-stage process is 0.005. 
+
+     Given that only one learning rate has been provided in the context of LS training, 
+     it seems that the learning rate used during the softmax phase of LS training 
+     continues over from the annealed learning rate used during the linear phase. 
+     
+     But when I tried this, my model learned too slowly. What happened? Did I assume wrong?
+
+   - Resolution:
+     Yes. My current understanding is that the authors only intended for the term "LS training" 
+     to refer to the first stage of the two-phase process. 
+
+     Consequently, their remark about the 0.005 initial learning rate for "LS training" 
+     was intended only to refer to the initial learning rate of the linear phase.
+
+     Facebook's official implementation appears to use two different command line arguments
+     for the initial learning rates of the linear and the softmax phases. 
+
+     In other words, the authors' own code automatically transitions between the two phases, 
+     but it does NOT hand off the annealed learning rate from the linear phase. 
+
+     I thus believe the authors intended for the 0.005 learning rate to apply only to the first phase, 
+     and for the default 0.01 initial learning rate to apply to the second phase. 
+
 
 3. - Ambiguity:
-     Regarding random noise training, what is meant by "10% of empty memories"? 
+     In Section 4.1, there is a passage on "injecting random noise". 
+     In this passage, what is meant by "10% of empty memories" being added? 
+
    - Resolution:
-     Based on Facebook's official implementation, it appears to mean that the number of empty memories to be interspersed should be 10% of the number of nonempty memories. 
-     It does not mean 10% of the total number of empty memories. 
+     Three matters to resolve here. 
+
+     Definition of 'empty memories':
+       Memories derived from sentences consisting entirely of the padding token ("the nil word"). 
+       The word embedding of the padding token is constrained to be the zero vector. 
+       Empty memories are thus zero vectors. 
+
+     Definition of 'added':
+       Nonempty memories are from sentences. By default, the number of sentences determines the position 
+       the encoded memories occupy in the memory bank, because adjacent sentences have adjacent memory vectors.
+
+       By 'added', the authors mean interspersed. In other words, the relative order of the nonempty memories 
+       in the memory bank will not change, but their positions in memory may change, because other rows 
+       of the memory bank are now "occupied" by the empty memories. 
+
+     Actual number of empty memories: 
+       Based on Facebook's implementation, the number of empty memories to be interspersed 
+       should be 10% of the number of nonempty memories. 
+
+       To reiterate: they do NOT intersperse 10% of the total number of empty memories. 
+
 
 4. - Ambiguity:
-     The random noise must be interspersed uniformly throughout the nonempty memories, but must be capped at exactly 10% of the number of nonempties. 
-     How best to do this? 
+     During Random Noise training, the number of empty memories to be interspersed must be constant, 
+     but they must be interspersed with uniform density throughout the nonempty memories. 
+
+     How did the authors do that?
+
    - Resolution:
-     Facebook's official implementation achieves this by using a random permutation to generate the target memory locations of the nonempty memories. 
-     This can be done in a manner that preserves the original order of the nonempty memories. This implementation follows the same approach. 
+     Facebook's implementation achieves this by randomly generating a permutation, which they use 
+     to obtain integers that can be used as the target memory locations of the nonempty memories. 
+     This can be done in a manner that preserves the original order of the nonempty memories. 
+     
+     This implementation follows the same approach. 
 ```
 </details>
 
