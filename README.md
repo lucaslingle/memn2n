@@ -131,13 +131,23 @@ optional arguments:
 Replicating the results in the paper
 ------------------------------------
 
-For the bAbI tasks, the best joint training result on the 1k dataset used a 3-hop model with Position Encoding (PE), Linear Start (LS), and Random Noise (RN).
+For the bAbI tasks, the best performing model on the 1k dataset, in terms of mean error percentage, used the following configuration:  
 
-- For joint training, the authors use 60 epochs. 
+- Adjacent weight tying scheme
+- 3 hops
+- Position Encoding (PE)
+- Linear Start (LS)
+- Random Noise (RN)
+- jointly trained on all 20 bAbI tasks. 
+
+In addition:
+
+- The authors use 60 epochs for joint training on the bAbI 1k dataset. 
 - Empirically, I have found that 20 epochs suffices for the linear start component. 
 - The authors use 15 epochs per annealing, and anneal by half each time. 
 - During linear start, the initial learning rate is 0.005. 
 - During the component where softmaxes are used, the authors use an initial learning rate of 0.01. 
+- Empirically, I observed that using the learning rate from the linear start component is too low to allow convergence once softmaxes are reintroduced.
 - The random noise must be interspersed uniformly throughout the nonempty memories, but must be capped at a particular level. 
   This implementation achieves this by using a random permutation to generate the target memory locations of the nonempty memories.  
 
