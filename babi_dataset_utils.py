@@ -339,19 +339,14 @@ class bAbI:
             if max_nr_empty_memories_to_intersperse > 0:
                 nr_empty_memories_to_intersperse = np.random.randint(low=0, high=max_nr_empty_memories_to_intersperse)
 
-            offset = 0
+            permutation = np.random.permutation(nr_sentences + nr_empty_memories_to_intersperse)
+            set_of_idxs_for_nonempty_memories = set(permutation[0:nr_sentences])
+            target_idxs_for_nonempty_memories = sorted(list(set_of_idxs_for_nonempty_memories))
 
             for i in range(0,nr_sentences):
-                poisson_rate = nr_empty_memories_to_intersperse / float(nr_sentences - i)
-
-                number_of_empties_before_next_sentence = int(np.random.poisson(poisson_rate))
-                number_of_empties_before_next_sentence = min(nr_empty_memories_to_intersperse, number_of_empties_before_next_sentence)
-                nr_empty_memories_to_intersperse -= number_of_empties_before_next_sentence
-
-                offset += number_of_empties_before_next_sentence
-
+                target_idx_for_nonempty_memory_i = target_idxs_for_nonempty_memories[i]
                 Jpadded_sentence_ints = Jpadded_sentences_ints_list[i]
-                sentences_2d_array[offset,:] = np.array(Jpadded_sentence_ints)
+                sentences_2d_array[target_idx_for_nonempty_memory_i,:] = np.array(Jpadded_sentence_ints)
 
         else:
             nr_sentences = len(Jpadded_sentences_ints_list)
