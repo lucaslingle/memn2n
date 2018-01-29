@@ -41,9 +41,9 @@ mkdir datasets/bAbI/
 
 Download the bAbI dataset to that directory, using the link provided on the following page:<br>
 https://research.fb.com/downloads/babi/
-<br><br>
+<br>
 
-Unzip the dataset:
+Then unzip the dataset:
 ```
 $ cd datasets/bAbI/
 $ tar -zxvf tasks_1-20_v1-2.tar.gz
@@ -154,12 +154,13 @@ For the bAbI tasks, the best performing model on the 1k dataset, in terms of mea
 - 15 epochs per annealing
 - 0.5 annealing constant
 - linear phase of LS training ends when the validation error rate stops falling 
+<br>
 
-
-The script to implement this configuration can be found below:
+The script to implement this configuration can be found below:  
+<br>
 
 <details>
-  <summary>expand</summary>
+  <summary>Click to expand</summary>
 
 ```
 # linear start component
@@ -211,13 +212,15 @@ python main.py \
   --load=True
 ```
 </details>
+<br>
 
 
 In addition, there were some ambiguities in the paper, and the script above resolves them, in what I believe to be the correct way. 
-You can find the details of my thinking below. 
+You can find the details of my thinking below.  
+<br>
 
 <details>
-  <summary>expand</summary>
+  <summary>Click to expand</summary>
 
 ```
 
