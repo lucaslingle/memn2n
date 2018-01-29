@@ -34,9 +34,20 @@ $ source activate memn2n_env
 
 Data
 --------
-Download the bAbI dataset using the link provided on the following page:<br>
+Create a directory for the data:
+```
+mkdir datasets/bAbI/
+```
+
+Download the bAbI dataset to that directory, using the link provided on the following page:<br>
 https://research.fb.com/downloads/babi/
 <br><br>
+
+Unzip the dataset:
+```
+$ cd datasets/bAbI/
+$ tar -zxvf tasks_1-20_v1-2.tar.gz
+```
 
 Usage
 -----
@@ -139,17 +150,16 @@ For the bAbI tasks, the best performing model on the 1k dataset, in terms of mea
 - Linear Start (LS)
 - Random Noise (RN)
 - jointly trained on all 20 bAbI tasks. 
+- 60 epochs
+- 15 epochs per annealing
+- 0.5 annealing constant
+- linear phase of LS training ends when the validation error rate stops falling 
 
-In addition:
 
-- The authors use 60 epochs for joint training on the bAbI 1k dataset. 
-- Empirically, I have found that 20 epochs suffices for the linear start component. 
-- The authors use 15 epochs per annealing, and anneal by half each time. 
-- During linear start, the initial learning rate is 0.005. 
-- During the component where softmaxes are used, the authors use an initial learning rate of 0.01. 
-- Empirically, I observed that using the learning rate from the linear start component is too low to allow convergence once softmaxes are reintroduced.
-- The random noise must be interspersed uniformly throughout the nonempty memories, but must be capped at a particular level. 
-  This implementation achieves this by using a random permutation to generate the target memory locations of the nonempty memories.  
+The script to implement this configuration can be found below:
+
+<details>
+  <summary>expand</summary>
 
 ```
 # linear start component
@@ -200,3 +210,46 @@ python main.py \
   --mode=test \
   --load=True
 ```
+</details>
+
+
+In addition, there were some ambiguities in the paper, and the script above resolves them, in what I believe to be the correct way. 
+You can find the details of my thinking below. 
+
+<details>
+  <summary>expand</summary>
+
+```
+
+1. - Ambiguity: 
+     What is the frequency that the validation error rate should be checked, when deciding when to end the linear phase. 
+
+   - Resolution: 
+     I checked after every epoch. Empirically, I have found that 20 epochs works fairly well for the linear phase of LS training.
+
+2. - Ambiguity: 
+     The paper asserts, without any caveats, that they use an initial learning rate of 0.01. 
+     The paper asserts later on that during the linear training phase of LS training, the initial learning rate is 0.005. 
+     What learning rate is used during the softmax phase of LS training? 
+     Is it the annealed value from the linear training phase, or is it 0.01?
+
+   - Resolution: 
+     Empirically, I have found that the softmax training phase of LS training requires a higher learning rate than the annealed rate from the linear training phase.
+     In addition, Facebook's official implementation appears to use a separate learning rate for the softmax training phase of LS training.
+     I have therefore opted to use an initial learning rate of 0.01 during the softmax training phase of LS training.
+
+3. - Ambiguity:
+     Regarding random noise training, what is meant by "10% of empty memories"? 
+   - Resolution:
+     Based on Facebook's official implementation, it appears to mean that the number of empty memories to be interspersed should be 10% of the number of nonempty memories. 
+     It does not mean 10% of the total number of empty memories. 
+
+4. - Ambiguity:
+     The random noise must be interspersed uniformly throughout the nonempty memories, but must be capped at exactly 10% of the number of nonempties. 
+     How best to do this? 
+   - Resolution:
+     Facebook's official implementation achieves this by using a random permutation to generate the target memory locations of the nonempty memories. 
+     This can be done in a manner that preserves the original order of the nonempty memories. This implementation follows the same approach. 
+```
+</details>
+
