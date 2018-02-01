@@ -257,11 +257,11 @@ You can find the details of my thinking below. It's written a bit like an FAQ.
 
 ```
 
-1. - Ambiguity: 
+1. - Question: 
      What is the frequency that the validation error rate should be checked, when deciding 
      when to end the linear phase of LS training?
 
-   - Resolution:
+   - Answer:
      This implementation doesn't automatically switch from linear to softmax during LS training, 
      so this isn't something I had to resolve in order to get the code running. 
 
@@ -271,7 +271,7 @@ You can find the details of my thinking below. It's written a bit like an FAQ.
      It seems to work well.
 
 
-2. - Ambiguity: 
+2. - Question: 
      In section 4.2, the paper states unconditionally that they use an initial learning rate of 0.01. 
      Shortly thereafter, the paper describes a two-stage process and says "we refer to this as LS training". 
      The paper then says that "in LS training, the initial learning rate is set to 0.005." 
@@ -285,28 +285,56 @@ You can find the details of my thinking below. It's written a bit like an FAQ.
      
      But when I tried this, my model learned too slowly. What happened? Did I assume wrong?
 
-   - Resolution:
+   - Answer:
      Yes. My current understanding is that the authors only intended for the term "LS training" 
      to refer to the first stage of the two-phase process. 
 
      Consequently, their remark about the 0.005 initial learning rate for "LS training" 
      was intended only to refer to the initial learning rate of the linear phase.
 
-     Facebook's official implementation appears to use two different command line arguments
-     for the initial learning rates of the linear and the softmax phases. 
+     Facebook's official implementation appears to use two different variables for the 
+     initial learning rate of the linear phase and the initial learning rate of the softmax phase. 
+     Their code does not have any functionality for passing the learning rate from the linear phase to the softmax phase. 
+     Furthermore, they configure the anneal epochs so as to not actually perform any annealing during the linear phase. 
 
-     In other words, the authors' own code automatically transitions between the two phases, 
-     but it does NOT hand off the annealed learning rate from the linear phase. 
+     For ease of use, I will summarize all official configurations on the 1k bAbI dataset:
 
-     I thus believe the authors intended for the 0.005 learning rate to apply only to the first phase, 
-     and for the default 0.01 initial learning rate to apply to the second phase. 
+     For the 1k bAbI dataset with joint training, with linear start: 
+     embedding dimension: 50
+     linear phase epochs: 30
+     linear phase anneal epochs: 31 (i.e., no annealing)
+     linear phase initial learning rate: 0.005
+     softmax phase epochs: 60
+     softmax phase anneal epochs: 15
+     softmax phase initial learning rate: 0.005
+     
+     For the 1k bAbI dataset with single-task training, with linear start: 
+     embedding dimension: 20
+     linear phase epochs: 20
+     linear phase anneal epochs: 21 (i.e., no annealing)
+     linear phase initial learning rate: 0.005
+     softmax phase epochs: 100
+     softmax phase anneal epochs: 25
+     softmax phase initial learning rate: 0.005
+
+     For the 1k bAbI dataset with joint training, softmax only:
+     embedding dimension: 50
+     softmax phase epochs: 60
+     softmax phase anneal epochs: 15
+     softmax phase initial learning rate: 0.01
+
+     For the 1k bAbI dataset with single-task training, softmax only:
+     embedding dimension: 20
+     softmax phase epochs: 100
+     softmax phase anneal epochs: 25
+     softmax phase initial learning rate: 0.01
 
 
-3. - Ambiguity:
+3. - Question:
      In Section 4.1, there is a passage on "injecting random noise". 
      In this passage, what is meant by "10% of empty memories" being added? 
 
-   - Resolution:
+   - Answer:
      Three matters to resolve here. 
 
      Definition of 'empty memories':
@@ -329,18 +357,45 @@ You can find the details of my thinking below. It's written a bit like an FAQ.
        To reiterate: they do NOT intersperse 10% of the total number of empty memories. 
 
 
-4. - Ambiguity:
+4. - Question:
      During Random Noise training, the number of empty memories to be interspersed must be constant, 
      but they must be interspersed with uniform density throughout the nonempty memories. 
 
      How did the authors do that?
 
-   - Resolution:
+   - Answer:
      Facebook's implementation achieves this by randomly generating a permutation, which they use 
      to obtain integers that can be used as the target memory locations of the nonempty memories. 
      This can be done in a manner that preserves the original order of the nonempty memories. 
      
      This implementation follows the same approach. 
+
+5. - Question:
+     I noticed you used tf.clip_by_norm for gradient clipping, and are clipping each tensor separately. 
+     Why did you do that? That's not the correct way to do gradient clipping. Even the tensorflow documentation says so.  
+
+   - Good question. My initial implementation used tf.clip_by_global_norm. However, after over a hundred trials of different configurations, 
+     I found that the model could not adequately pass bAbI task 15, "basic deduction." By contrast, the authors of the paper 
+     were able to get a 0.0% test error rate using just position encoding and training only on task 15. 
+
+     By contrast, by models had a 40-50% error rate when I did that. 
+
+     My model also did not improve on task 15 even when I used linear start, or random noise, or both. 
+     Even running a bag-of-words model, I could not match their test error rate of 24.3% on task 15. 
+
+     After extensive debugging, I eventually narrowed the issue down to one difference: 
+     the authors in the paper state in Section 5 that they used global gradient clipping for the Language Modeling experiments. 
+     They continued their remarks in a footnote, stating that "In the QA tasks, the gradient of each weight matrix is measured separately". 
+
+     I confirmed this by looking at Facebook's Matlab implementation of MemN2N for the bAbI tasks, 
+     and found that they were indeed clipping the gradient of each matrix separately. See nn/Weight.m and nn/LookupTable.m. 
+     Each lookup table contains a 2D tensor-like variable of type Weight, and the LookupTable class's 'update' function passes 
+     the gradient update straight to the Weight variable's 'update' function. Finally, the nn/Weight.m file shows that the 
+     Weight class's update function clips the gradient immediately.  
+
+     Right now, I am most interested in making sure I can completely reproduce the results of the paper, 
+     and to that end, I plan on following the official implementation. 
+
 ```
 </details>
 

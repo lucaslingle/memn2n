@@ -2,6 +2,7 @@ import tensorflow as tf
 from MemoryNetwork import MemoryNetwork
 import babi_dataset_utils as bb
 import os
+import numpy as np
 import sys
 import errno
 
@@ -28,6 +29,7 @@ flags.DEFINE_integer("batch_size", 32, "batch size [32]")
 flags.DEFINE_integer("epochs", 100, "number of epochs [100]")
 flags.DEFINE_float("initial_learning_rate", 0.01, "initial learning rate [0.01]")
 flags.DEFINE_float("gradient_clip", 40, "maximum gradient norm [40]")
+flags.DEFINE_float("gradient_noise_scale", 0.001, "stddev for adding gaussian noise to gradient [0.001]")
 flags.DEFINE_float("anneal_const", 0.5, "annealing constant [0.5]")
 flags.DEFINE_integer("anneal_epochs", 25, "number of epochs per annealing [25]")
 
@@ -39,6 +41,10 @@ flags.DEFINE_boolean("linear_start", False, "start with linear attention (as opp
 flags.DEFINE_boolean("position_encoding", True, "position encoding [True]")
 flags.DEFINE_string("weight_tying_scheme", 'adj', "weight tying scheme: 'adj' or 'rnnlike' [adj]")
 flags.DEFINE_boolean("random_noise", False, "random noise (insert empty memories to regularize temporal embedding) [False]")
+flags.DEFINE_string("word_emb_initializer", 'truncated_normal_initializer', "weight initializer class name for word embedding weights. [random_normal_initializer]")
+flags.DEFINE_float("word_emb_init_scale", 0.1, "value for stddev or gain argument of the word_emb_initializer [0.1]")
+flags.DEFINE_string("temporal_emb_initializer", 'truncated_normal_initializer', "weight initializer class name for temporal embedding weights. [random_normal_initializer]")
+flags.DEFINE_float("temporal_emb_init_scale", 0.1, "value for stddev or gain argument of the temporal_emb_initializer [0.1]")
 
 FLAGS = flags.FLAGS
 
@@ -56,12 +62,17 @@ def get_vocab_filename_from_settings(FLAGS):
 
     return candidate_vocab_filename
 
-def compute_and_save_babi_vocab(data_dir, save_fp):
+def compute_and_save_babi_vocab(FLAGS, save_fp):
+    # compute and save a vocab dictionary as a pickle file
 
     babi = bb.bAbI()
 
-    # compute and save a vocab dict that covers all bAbI tasks.
-    _, _, _ = babi.prepare_data_for_joint_tasks(data_dir=data_dir, validation_frac=0.0, vocab_dict=None)
+    if FLAGS.babi_joint:
+        _, _, _ = babi.prepare_data_for_joint_tasks(
+            FLAGS.data_dir, FLAGS.validation_frac, vocab_dict=None)
+    else:
+        _, _, _ = babi.prepare_data_for_single_task(
+            FLAGS.data_dir, FLAGS.babi_task_id, FLAGS.validation_frac, vocab_dict=None)
 
     babi.save_vocab_dict_to_file(vocab_dict=babi.vocab_dict, vocab_fp=save_fp)
 
@@ -80,9 +91,9 @@ def main():
         # prepare vocab if it doesn't exist
         if not vocab_fp_exists:
             if FLAGS.load:
-                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), vocab_fp_exists)
+                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), candidate_vocab_fp)
 
-            compute_and_save_babi_vocab(FLAGS.data_dir, candidate_vocab_fp)
+            compute_and_save_babi_vocab(FLAGS, candidate_vocab_fp)
 
         with tf.Graph().as_default() as graph:
 
@@ -105,8 +116,14 @@ def main():
                                   number_of_memories=FLAGS.number_of_memories,
                                   max_sentence_len=babi.max_sentence_len,
                                   gradient_clip=FLAGS.gradient_clip,
+                                  gradient_noise_scale=FLAGS.gradient_noise_scale,
                                   weight_tying_scheme=FLAGS.weight_tying_scheme,
-                                  position_encoding=FLAGS.position_encoding)
+                                  position_encoding=FLAGS.position_encoding,
+                                  word_emb_initializer=FLAGS.word_emb_initializer,
+                                  word_emb_init_scale=FLAGS.word_emb_init_scale,
+                                  temporal_emb_initializer=FLAGS.temporal_emb_initializer,
+                                  temporal_emb_init_scale=FLAGS.temporal_emb_init_scale,
+                                  )
 
         with tf.Session(graph=graph) as sess:
             sess.run(tf.global_variables_initializer())
@@ -122,6 +139,7 @@ def main():
             if FLAGS.mode == 'train':
 
                 for epoch in range(1, FLAGS.epochs + 1):
+                    np.random.shuffle(train)
                     for i in range(0, nr_training_examples, FLAGS.batch_size):
 
                         if (i + FLAGS.batch_size) > nr_training_examples:

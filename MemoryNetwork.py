@@ -1,13 +1,47 @@
 import tensorflow as tf
 import os
+from tensorflow.python.ops import control_flow_ops
 
+class WeightInitializerHelper:
+    def __init__(self):
+
+        self.initializers = {
+            'word': {
+                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
+                    gain=scale
+                )
+            },
+            'temporal': {
+                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
+                    gain=scale
+                )
+            }
+        }
 
 class MemoryNetwork:
     def __init__(self, vocab_size, embedding_dim, number_of_hops,
                  batch_size, number_of_memories, max_sentence_len,
-                 gradient_clip,
+                 gradient_clip=40,
+                 gradient_noise_scale=0.001,
                  weight_tying_scheme='adj',
-                 position_encoding=True):
+                 position_encoding=True,
+                 word_emb_initializer='random_normal_initializer',
+                 word_emb_init_scale=0.1,
+                 temporal_emb_initializer='random_normal_initializer',
+                 temporal_emb_init_scale=0.1
+                 ):
 
         self.V = int(vocab_size)
         self.d = int(embedding_dim)
@@ -18,12 +52,14 @@ class MemoryNetwork:
         self.J = int(max_sentence_len)
 
         self.gradient_clip = float(gradient_clip)
+        self.gradient_noise_scale = float(gradient_noise_scale)
 
         self.weight_tying_scheme = weight_tying_scheme
         self.position_encoding = position_encoding
 
-        self.word_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10)   #tf.orthogonal_initializer(gain=0.10)
-        self.nonword_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.10)
+        self.weight_init = WeightInitializerHelper()
+        self.word_initializer = self.weight_init.initializers['word'][word_emb_initializer](word_emb_init_scale)
+        self.nonword_initializer = self.weight_init.initializers['temporal'][temporal_emb_initializer](temporal_emb_init_scale)
 
         self.nr_embedding_matrices_formulas = {
             'word': {
@@ -124,16 +160,18 @@ class MemoryNetwork:
         self.l = self.sentence_position_encoders[self.encoding_type]
 
         # encode questions
-        u_batch = self.get_encoded_questions(weight_tying_scheme, self.question_ints_batch)
+        self.u_batch = self.get_encoded_questions(weight_tying_scheme, self.question_ints_batch)
 
         # run query against memory network
-        memory_output_batch = self.build_and_stack_memory_layers(
+        self.layer_results = self.build_and_stack_memory_layers(
             weight_tying_scheme,
             self.sentences_ints_batch,
-            u_batch)
+            self.u_batch)
+
+        self.memory_output_batch = self.layer_results[-1]
 
         # decode to get answer logits
-        self.answer_logits_batch, self.answer_probs_batch = self.get_answer_logits(weight_tying_scheme, memory_output_batch)
+        self.answer_logits_batch, self.answer_probs_batch = self.get_answer_logits(weight_tying_scheme, self.memory_output_batch)
 
         # build loss and other metrics
         self.answer_onehot_labels_batch = tf.nn.embedding_lookup(tf.eye(self.V), self.answer_ints_batch)
@@ -145,7 +183,8 @@ class MemoryNetwork:
         # build training operation
         self.train_op = self.build_training_op(self.summed_cross_entropy_batch,
                                                learning_rate=self.learning_rate,
-                                               gradient_clip=self.gradient_clip)
+                                               gradient_clip=self.gradient_clip,
+                                               gradient_noise_scale=self.gradient_noise_scale)
 
         # build a saver for all this
         self.saver = tf.train.Saver()
@@ -187,6 +226,7 @@ class MemoryNetwork:
 
     def build_and_stack_memory_layers(self, weight_tying_scheme, input_sentences_ints_batch, u_batch):
         layer_results = [u_batch]
+        u_next = u_batch
 
         for i in range(0, self.number_of_hops):
 
@@ -212,7 +252,7 @@ class MemoryNetwork:
 
             u_next = self.build_memory_layer(
                 input_sentences_ints_batch=input_sentences_ints_batch,
-                u_batch=layer_results[-1],
+                u_batch=u_next,
                 A=A,
                 C=C,
                 T_A=T_A,
@@ -222,7 +262,7 @@ class MemoryNetwork:
 
             layer_results.append(u_next)
 
-        return layer_results[-1]
+        return layer_results
 
     def build_memory_layer(self, input_sentences_ints_batch, u_batch,
                            A, C, T_A, T_C, H):
@@ -247,7 +287,7 @@ class MemoryNetwork:
 
         p = self.attention_mechanism(memory_scores)        # [batch_size, M]
 
-        p = tf.reshape(p, [self.batch_size, 1, self.M])    # [batch_size, 1, M]
+        p = tf.expand_dims(p, 1)                           # [batch_size, 1, M]
 
         o = tf.matmul(p, m_C)                              # [batch_size, 1, M] x [batch_size, M, d] = [batch_size, 1, d]
         o = tf.squeeze(o, [1])                             # [batch_size, d]
@@ -266,7 +306,8 @@ class MemoryNetwork:
         nonpad_embeddings = tf.get_variable('word_embedding_matrix_' + str(matrix_id),
                                             dtype='float',
                                             shape=[self.V - 1, self.d],
-                                            initializer=self.word_initializer)
+                                            initializer=self.word_initializer
+                                            )
 
         word_embedding_matrix = tf.concat([pad_embedding, nonpad_embeddings], axis = 0)
         return word_embedding_matrix
@@ -276,7 +317,8 @@ class MemoryNetwork:
         temporal_embedding_matrix = tf.get_variable('temporal_embedding_matrix_' + str(idx),
                                                     dtype='float',
                                                     shape=[self.M, self.d],
-                                                    initializer=self.nonword_initializer)
+                                                    initializer=self.nonword_initializer
+                                                    )
 
         return temporal_embedding_matrix
 
@@ -285,7 +327,8 @@ class MemoryNetwork:
             H_matrix = tf.get_variable('H_matrix',
                                        dtype='float',
                                        shape=[self.d, self.d],
-                                       initializer=self.nonword_initializer)
+                                       initializer=self.nonword_initializer
+            )
             return H_matrix
 
     def build_bag_of_words_encoding(self):
@@ -305,10 +348,10 @@ class MemoryNetwork:
         return l
 
     def build_softmax_attention(self, memory_scores):
-        return tf.nn.softmax(memory_scores)
+        return tf.nn.softmax(memory_scores, dim=1)
 
     def build_linear_attention(self, memory_scores):
-        return memory_scores
+        return tf.identity(memory_scores)
 
     def attention_mechanism(self, memory_scores):
         # This function exists so that we can change from attention being linear to softmax
@@ -340,14 +383,22 @@ class MemoryNetwork:
 
         return summed_cross_entropy_batch, accuracy_batch, error_rate_batch
 
-    def build_training_op(self, loss, learning_rate, gradient_clip):
+    def build_training_op(self, loss, learning_rate, gradient_clip, gradient_noise_scale):
         tvars = tf.trainable_variables()
-        grads, _ = tf.clip_by_global_norm(tf.gradients(loss, tvars), gradient_clip)
+        opt = tf.train.GradientDescentOptimizer(learning_rate)
 
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-        optimizer_operation = optimizer.apply_gradients(zip(grads, tvars))
+        gradients, _ = zip(*opt.compute_gradients(loss, tvars))
+        gradients = [
+            None if gradient is None else tf.clip_by_norm(gradient, gradient_clip)
+            for gradient in gradients]
 
-        return optimizer_operation
+        gradients = [
+            None if gradient is None else tf.add(gradient, tf.random_normal(tf.shape(gradient), stddev=gradient_noise_scale))
+            for gradient in gradients]
+
+        grad_updates = opt.apply_gradients(list(zip(gradients, tvars)))
+        train_tensor = control_flow_ops.with_dependencies([grad_updates], loss)
+        return train_tensor
 
     def save(self, session, checkpoint_dir, checkpoint_name='memn2n_model'):
         checkpoint_fp = os.path.join(checkpoint_dir, checkpoint_name)

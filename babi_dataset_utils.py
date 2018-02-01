@@ -196,7 +196,7 @@ class bAbI:
             return vocab_dict
 
     def prepare_data_for_single_task(self, data_dir, task_id, validation_frac, random_seed=1, vocab_dict=None):
-        np.random.seed(random_seed)
+        #np.random.seed(random_seed)
 
         train_fp = self.get_fp_for_task(data_dir, 'train', task_id)
         test_fp = self.get_fp_for_task(data_dir, 'test', task_id)
@@ -216,12 +216,13 @@ class bAbI:
         validation_sqa_tuples = [sqa for story in validation_stories for sqa in story.sqa_tuples]
         test_sqa_tuples = [sqa for story in test_stories for sqa in story.sqa_tuples]
 
-        all_sqa_tuples = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
+        sqa_tuples_for_max_length = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
+        sqa_tuples_for_vocab = train_sqa_tuples
 
         if vocab_dict is None:
-            vocab_dict = self.compute_vocab_dict_from_sqa_tuples(all_sqa_tuples)
+            vocab_dict = self.compute_vocab_dict_from_sqa_tuples(sqa_tuples_for_vocab)
 
-        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(all_sqa_tuples)
+        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(sqa_tuples_for_max_length)
 
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
@@ -239,7 +240,7 @@ class bAbI:
         return train_sqa_tuples_ints, validation_sqa_tuples_ints, test_sqa_tuples_ints
 
     def prepare_data_for_joint_tasks(self, data_dir, validation_frac, random_seed=1, vocab_dict=None):
-        np.random.seed(random_seed)
+        #np.random.seed(random_seed)
 
         train_sqa_tuples = []
         validation_sqa_tuples = []
@@ -268,12 +269,13 @@ class bAbI:
             validation_sqa_tuples.extend(validation_sqa_tuples_for_task)
             test_sqa_tuples.extend(test_sqa_tuples_for_task)
 
-        all_sqa_tuples = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
+        sqa_tuples_for_max_length = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
+        sqa_tuples_for_vocab = train_sqa_tuples
 
         if vocab_dict is None:
-            vocab_dict = self.compute_vocab_dict_from_sqa_tuples(all_sqa_tuples)
+            vocab_dict = self.compute_vocab_dict_from_sqa_tuples(sqa_tuples_for_vocab)
 
-        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(all_sqa_tuples)
+        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(sqa_tuples_for_max_length)
 
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
