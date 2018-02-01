@@ -396,6 +396,15 @@ You can find the details of my thinking below. It's written a bit like an FAQ.
      Right now, I am most interested in making sure I can completely reproduce the results of the paper, 
      and to that end, I plan on following the official implementation. 
 
+6. - Question: 
+     Why do you include a xavier normal initializer?
+
+   - Answer:
+     I found it worked way better for individual training on task 16 (basic induction). And adding 0.0007 gradient noise works great, too. Works every time. 
+
+     Though, I should mention that it is bad for task 15 (basic deduction). Fails every time. 
+     You're better off using truncated normal with stddev=0.10 for that. Throw 0.0002 gradient noise in too. It works every time. 
+
 ```
 </details>
 

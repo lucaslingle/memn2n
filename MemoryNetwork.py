@@ -15,6 +15,12 @@ class WeightInitializerHelper:
                 ),
                 'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
                     gain=scale
+                ),
+                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=False
+                ),
+                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=True
                 )
             },
             'temporal': {
@@ -26,6 +32,12 @@ class WeightInitializerHelper:
                 ),
                 'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
                     gain=scale
+                ),
+                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=False
+                ),
+                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=True
                 )
             }
         }
@@ -84,25 +96,25 @@ class MemoryNetwork:
                     'B': 0,
                     'A': lambda i: i,
                     'C': lambda i: i+1,
-                    'W': -1
+                    'W': self.nr_embedding_matrices_formulas['word']['adj'] - 1
                 },
                 'rnnlike': {
                     'B': 0,
                     'A': lambda i: 1,
                     'C': lambda i: 2,
-                    'W': -1
+                    'W': self.nr_embedding_matrices_formulas['word']['rnnlike'] - 1
                 },
                 'allsame': {
                     'B': 0,
                     'A': lambda i: 0,
                     'C': lambda i: 0,
-                    'W': 0
+                    'W': self.nr_embedding_matrices_formulas['word']['allsame'] - 1
                 },
                 'alldiff': {
                     'B': 0,
                     'A': lambda i: 2*i + 1,
                     'C': lambda i: 2*i + 2,
-                    'W': -1
+                    'W': self.nr_embedding_matrices_formulas['word']['alldiff'] - 1
                 }
             },
             'temporal': {
@@ -131,8 +143,14 @@ class MemoryNetwork:
         }
 
         self.embedding_matrices = {
-            'word':     [self.build_word_embedding_matrix(idx) for idx in range(self.nr_embedding_matrices['word'])],
-            'temporal': [self.build_temporal_embedding_matrix(idx) for idx in range(self.nr_embedding_matrices['temporal'])]
+            'word':     {
+                str(idx): self.build_word_embedding_matrix(idx)
+                for idx in range(self.nr_embedding_matrices['word'])
+            },
+            'temporal': {
+                str(idx): self.build_temporal_embedding_matrix(idx)
+                for idx in range(self.nr_embedding_matrices['temporal'])
+            }
         }
 
         self.sentence_position_encoders = {
@@ -151,6 +169,8 @@ class MemoryNetwork:
             'allsame': tf.eye(self.d),
             'alldiff': self.build_H_mapping(scope_name='alldiff')
         }
+
+        self._vars_with_nils = set([emb for emb in self.embedding_matrices['word']])
 
         # build placeholders
         self.sentences_ints_batch, self.question_ints_batch, self.answer_ints_batch = self.build_data_inputs()
@@ -204,7 +224,7 @@ class MemoryNetwork:
     def get_encoded_questions(self, weight_tying_scheme, q_batch):
 
         B_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['B']
-        B = self.embedding_matrices['word'][B_retrieval_idx]
+        B = self.embedding_matrices['word'][str(B_retrieval_idx)]
 
         B_word_embeddings = tf.nn.embedding_lookup(B, q_batch)  # [batch_size, J, d]
 
@@ -215,15 +235,6 @@ class MemoryNetwork:
 
         return u_batch
 
-    def get_answer_logits(self, weight_tying_scheme, memory_output_batch):
-        W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
-        W = tf.transpose(self.embedding_matrices['word'][W_retrieval_idx])
-
-        answer_logits_batch = tf.matmul(memory_output_batch, W)          # [batch_size, d] x [d, V] = [batch_size, V]
-        answer_probabilities_batch = tf.nn.softmax(answer_logits_batch)  # [batch_size, V]
-
-        return answer_logits_batch, answer_probabilities_batch
-
     def build_and_stack_memory_layers(self, weight_tying_scheme, input_sentences_ints_batch, u_batch):
         layer_results = [u_batch]
         u_next = u_batch
@@ -233,16 +244,16 @@ class MemoryNetwork:
             # get embedding matrices for memory layer i
 
             A_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['A'](i)
-            A = self.embedding_matrices['word'][A_retrieval_idx]
+            A = self.embedding_matrices['word'][str(A_retrieval_idx)]
 
             C_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['C'](i)
-            C = self.embedding_matrices['word'][C_retrieval_idx]
+            C = self.embedding_matrices['word'][str(C_retrieval_idx)]
 
             T_A_retrieval_idx = self.routing_formulas['temporal'][weight_tying_scheme]['T_A'](i)
-            T_A = self.embedding_matrices['temporal'][T_A_retrieval_idx]
+            T_A = self.embedding_matrices['temporal'][str(T_A_retrieval_idx)]
 
             T_C_retrieval_idx = self.routing_formulas['temporal'][weight_tying_scheme]['T_C'](i)
-            T_C = self.embedding_matrices['temporal'][T_C_retrieval_idx]
+            T_C = self.embedding_matrices['temporal'][str(T_C_retrieval_idx)]
 
             H = self.layer_transition_operators[weight_tying_scheme]
 
@@ -295,6 +306,15 @@ class MemoryNetwork:
         u_next = tf.matmul(o, H) + u_batch                 # [batch_size, d]
 
         return u_next
+
+    def get_answer_logits(self, weight_tying_scheme, memory_output_batch):
+        W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
+        W = tf.transpose(self.embedding_matrices['word'][str(W_retrieval_idx)])
+
+        answer_logits_batch = tf.matmul(memory_output_batch, W)          # [batch_size, d] x [d, V] = [batch_size, V]
+        answer_probabilities_batch = tf.nn.softmax(answer_logits_batch)  # [batch_size, V]
+
+        return answer_logits_batch, answer_probabilities_batch
 
     def build_word_embedding_matrix(self, matrix_id):
         # According to 'End-to-End Memory Networks' section 4.2:
@@ -383,22 +403,47 @@ class MemoryNetwork:
 
         return summed_cross_entropy_batch, accuracy_batch, error_rate_batch
 
+    def add_gradient_noise(self, t, stddev=1e-3, name=None):
+        """
+        Adds gradient noise as described in http://arxiv.org/abs/1511.06807 [2].
+        The input Tensor `t` should be a gradient.
+        The output will be `t` + gaussian noise.
+        0.001 was said to be a good fixed value for memory networks [2].
+        """
+        with tf.op_scope([t, stddev], name, "add_gradient_noise") as name:
+            t = tf.convert_to_tensor(t, name="t")
+            gn = tf.random_normal(tf.shape(t), stddev=stddev)
+            return tf.add(t, gn, name=name)
+
     def build_training_op(self, loss, learning_rate, gradient_clip, gradient_noise_scale):
+
         tvars = tf.trainable_variables()
         opt = tf.train.GradientDescentOptimizer(learning_rate)
 
+        print(tvars)
+
+        print([v.name for v in tvars])
+
         gradients, _ = zip(*opt.compute_gradients(loss, tvars))
+
+        print(gradients)
+
         gradients = [
             None if gradient is None else tf.clip_by_norm(gradient, gradient_clip)
             for gradient in gradients]
 
+        print(gradients)
+
         gradients = [
-            None if gradient is None else tf.add(gradient, tf.random_normal(tf.shape(gradient), stddev=gradient_noise_scale))
+            None if gradient is None else self.add_gradient_noise(gradient, stddev=gradient_noise_scale)
             for gradient in gradients]
+
+        print(gradients)
 
         grad_updates = opt.apply_gradients(list(zip(gradients, tvars)))
         train_tensor = control_flow_ops.with_dependencies([grad_updates], loss)
         return train_tensor
+
 
     def save(self, session, checkpoint_dir, checkpoint_name='memn2n_model'):
         checkpoint_fp = os.path.join(checkpoint_dir, checkpoint_name)
