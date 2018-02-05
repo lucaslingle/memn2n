@@ -166,7 +166,7 @@ NOTE:
   Our results on the test set are based on only training one model, so the error rate tends to be at least a bit higher, and sometimes significantly so. 
   In particular, the error rates on tasks 15 and 16 differ dramatically from what was reported in the paper. 
 
-| Task                     | Paper result | Our result |
+| Task                     | Paper result | Our result | 
 |--------------------------|--------------|------------|
 | 1: 1 supporting fact     |          0.0 |        1.4 |
 | 2: 2 supporting facts    |         11.4 |       14.1 |
@@ -374,7 +374,8 @@ You can find the details of my thinking below. It's written a bit like an FAQ.
      I noticed you used tf.clip_by_norm for gradient clipping, and are clipping each tensor separately. 
      Why did you do that? That's not the correct way to do gradient clipping. Even the tensorflow documentation says so.  
 
-   - Good question. My initial implementation used tf.clip_by_global_norm. However, after over a hundred trials of different configurations, 
+   - Answer:
+     My initial implementation used tf.clip_by_global_norm. However, after over a hundred trials of different configurations, 
      I found that the model could not adequately pass bAbI task 15, "basic deduction." By contrast, the authors of the paper 
      were able to get a 0.0% test error rate using just position encoding and training only on task 15. 
 
@@ -396,6 +397,30 @@ You can find the details of my thinking below. It's written a bit like an FAQ.
      Right now, I am most interested in making sure I can completely reproduce the results of the paper, 
      and to that end, I plan on following the official implementation. 
 
+6. - Question:
+     Why do you multiply the formula for the position encoding by 2?
+ 
+   - Answer:
+     The formula in the paper differs from the official implementation algebraically.
+     Both formulas can be considered as formal polynomial over variables k and j with rational coefficients. 
+     Considered as formal polynomials, the expression in the paper is not equivalent to the formula in the paper. 
+
+     More strikingly, the official implementation includes all the terms from the formula in the paper, but multiplied by a factor of two. 
+     However, the official implementation also includes some terms of degree 1 that are not in the paper, 
+     but these have small coefficients and do not account for the discrepancy. 
+     
+     In particular:
+     The maximum value of the expression used by facebook's implementation is 2. 
+     The maximum value of the expression used in the paper is 1. 
+     
+     Empirical observation shows that facebook's implementation for position encoding vastly outperforms the formula given in the paper. 
+     This is particularly pronounced on tasks 15 and 16, deduction and induction. 
+
+     I believe the difference in performance may be related to the relative influence of the temporal embedding over the resulting encoded memories. 
+     Without the additional amplification given by position encoding, the model cannot adequately discern the words encoded, and fails to learn to properly 
+     allocate attention to the memories containing the necessary supporting facts. 
+
+     I have therefore opted to multiply by 2. 
 ```
 </details>
 

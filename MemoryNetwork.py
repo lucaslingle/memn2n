@@ -2,34 +2,6 @@ import tensorflow as tf
 import os
 from tensorflow.python.ops import control_flow_ops
 
-class WeightInitializerHelper:
-    def __init__(self):
-
-        self.initializers = {
-            'word': {
-                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
-                    gain=scale
-                )
-            },
-            'temporal': {
-                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
-                    gain=scale
-                )
-            }
-        }
-
 class MemoryNetwork:
     def __init__(self, vocab_size, embedding_dim, number_of_hops,
                  batch_size, number_of_memories, max_sentence_len,
@@ -84,25 +56,25 @@ class MemoryNetwork:
                     'B': 0,
                     'A': lambda i: i,
                     'C': lambda i: i+1,
-                    'W': -1
+                    'W': self.nr_embedding_matrices_formulas['word']['adj'] - 1
                 },
                 'rnnlike': {
                     'B': 0,
                     'A': lambda i: 1,
                     'C': lambda i: 2,
-                    'W': -1
+                    'W': self.nr_embedding_matrices_formulas['word']['rnnlike'] - 1
                 },
                 'allsame': {
                     'B': 0,
                     'A': lambda i: 0,
                     'C': lambda i: 0,
-                    'W': 0
+                    'W': self.nr_embedding_matrices_formulas['word']['allsame'] - 1
                 },
                 'alldiff': {
                     'B': 0,
                     'A': lambda i: 2*i + 1,
                     'C': lambda i: 2*i + 2,
-                    'W': -1
+                    'W': self.nr_embedding_matrices_formulas['word']['alldiff'] - 1
                 }
             },
             'temporal': {
@@ -202,7 +174,6 @@ class MemoryNetwork:
         return sentences, question, answer
 
     def get_encoded_questions(self, weight_tying_scheme, q_batch):
-
         B_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['B']
         B = self.embedding_matrices['word'][B_retrieval_idx]
 
@@ -214,15 +185,6 @@ class MemoryNetwork:
         u_batch = tf.reduce_sum(B_word_embeddings, 1)           # [batch_size, d]
 
         return u_batch
-
-    def get_answer_logits(self, weight_tying_scheme, memory_output_batch):
-        W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
-        W = tf.transpose(self.embedding_matrices['word'][W_retrieval_idx])
-
-        answer_logits_batch = tf.matmul(memory_output_batch, W)          # [batch_size, d] x [d, V] = [batch_size, V]
-        answer_probabilities_batch = tf.nn.softmax(answer_logits_batch)  # [batch_size, V]
-
-        return answer_logits_batch, answer_probabilities_batch
 
     def build_and_stack_memory_layers(self, weight_tying_scheme, input_sentences_ints_batch, u_batch):
         layer_results = [u_batch]
@@ -296,6 +258,15 @@ class MemoryNetwork:
 
         return u_next
 
+    def get_answer_logits(self, weight_tying_scheme, memory_output_batch):
+        W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
+        W = tf.transpose(self.embedding_matrices['word'][W_retrieval_idx])
+
+        answer_logits_batch = tf.matmul(memory_output_batch, W)          # [batch_size, d] x [d, V] = [batch_size, V]
+        answer_probabilities_batch = tf.nn.softmax(answer_logits_batch)  # [batch_size, V]
+
+        return answer_logits_batch, answer_probabilities_batch
+
     def build_word_embedding_matrix(self, matrix_id):
         # According to 'End-to-End Memory Networks' section 4.2:
         #  "The embedding of the null symbol was constrained to be zero."
@@ -306,8 +277,7 @@ class MemoryNetwork:
         nonpad_embeddings = tf.get_variable('word_embedding_matrix_' + str(matrix_id),
                                             dtype='float',
                                             shape=[self.V - 1, self.d],
-                                            initializer=self.word_initializer
-                                            )
+                                            initializer=self.word_initializer)
 
         word_embedding_matrix = tf.concat([pad_embedding, nonpad_embeddings], axis = 0)
         return word_embedding_matrix
@@ -317,8 +287,7 @@ class MemoryNetwork:
         temporal_embedding_matrix = tf.get_variable('temporal_embedding_matrix_' + str(idx),
                                                     dtype='float',
                                                     shape=[self.M, self.d],
-                                                    initializer=self.nonword_initializer
-                                                    )
+                                                    initializer=self.nonword_initializer)
 
         return temporal_embedding_matrix
 
@@ -335,8 +304,47 @@ class MemoryNetwork:
         return tf.ones([self.J, self.d])
 
     def build_position_encoding(self):
+        """ EDIT: Facebook's matlab implementation uses a formula written differently than the formula in the paper.
+                  See https://github.com/facebook/MemNN/blob/master/MemN2N-babi-matlab/build_model.m
+
+            | % construct model
+            |if use_bow == false
+            |    config.weight = ones(config.input_dim, config.max_words, 'single');
+            |    for i = 1:config.input_dim
+            |        for j = 1:config.max_words
+            |            config.weight(i,j) = (i-(config.input_dim+1)/2)*(j-(config.max_words+1)/2);
+            |        end
+            |    end
+            |config.weight = 1 + 4 * config.weight / config.input_dim / config.max_words;
+
+            Using wolfram alpha, one may observe that the resulting formula differs from the one in the paper.
+            Most notably, there is a "2" missing from in front of the (k/d) portion of the formula in the paper.
+
+            The result is that the paper's formula corresponds to weights that adjust each coordinate k of the embedding.
+            Considered as a continuous function, the partial derivative w.r.t. the embedding coordinate k, for k = 1, ..., d
+            is
+                (j - (J/2)) / (J * d / 2)
+            whereas the partial derivative for the position encoding formula used in the official implementation
+            is
+                (j - (J/2)) / (J * d / 4)
+
+            Thus, the partial derivative from the paper is twice that of the partial derivative
+            from the formula printed in the paper. As printed, the position encoding described in the paper is flatter,
+            and may not distinguish as well between words in different positions within a sentence.
+
+            Empirical observation shows that using the formula printed in the paper has a deleterious impact on the learning process,
+            particularly for task 15 and 16, "basic deduction" and "basic induction".
+        """
+
         def l_kj(k, j):
-            return (1.0 - (float(j) / float(self.J))) - (float(k) / float(self.d)) * (1.0 - (2.0 * float(j) / float(self.J)))
+            # formula from paper
+            original_formula = (1.0 - (float(j) / float(self.J))) - (float(k) / float(self.d)) * (1.0 - (2.0 * float(j) / float(self.J)))
+
+            # corrected formula. embedding seems to need the extra variation added by the factor of 2.
+            corrected_formula = 2.0 * original_formula
+
+            return corrected_formula
+
 
         def l_j(j):
             return [l_kj(k, j) for k in range(1, self.d + 1)]
@@ -383,22 +391,39 @@ class MemoryNetwork:
 
         return summed_cross_entropy_batch, accuracy_batch, error_rate_batch
 
+    def add_gradient_noise(self, t, stddev=1e-3, name=None):
+        """
+        Adds gradient noise as described in http://arxiv.org/abs/1511.06807 [2].
+        The input Tensor `t` should be a gradient.
+        The output will be `t` + gaussian noise.
+        0.001 was said to be a good fixed value for memory networks [2].
+        """
+        with tf.op_scope([t, stddev], name, "add_gradient_noise") as name:
+            t = tf.convert_to_tensor(t, name="t")
+            gn = tf.random_normal(tf.shape(t), stddev=stddev)
+            return tf.add(t, gn, name=name)
+
     def build_training_op(self, loss, learning_rate, gradient_clip, gradient_noise_scale):
+
         tvars = tf.trainable_variables()
         opt = tf.train.GradientDescentOptimizer(learning_rate)
 
         gradients, _ = zip(*opt.compute_gradients(loss, tvars))
-        gradients = [
-            None if gradient is None else tf.clip_by_norm(gradient, gradient_clip)
-            for gradient in gradients]
 
         gradients = [
-            None if gradient is None else tf.add(gradient, tf.random_normal(tf.shape(gradient), stddev=gradient_noise_scale))
-            for gradient in gradients]
+            None if gradient is None else tf.clip_by_norm(gradient, gradient_clip)
+            for gradient in gradients
+        ]
+
+        gradients = [
+            None if gradient is None else self.add_gradient_noise(gradient, stddev=gradient_noise_scale)
+            for gradient in gradients
+        ]
 
         grad_updates = opt.apply_gradients(list(zip(gradients, tvars)))
         train_tensor = control_flow_ops.with_dependencies([grad_updates], loss)
         return train_tensor
+
 
     def save(self, session, checkpoint_dir, checkpoint_name='memn2n_model'):
         checkpoint_fp = os.path.join(checkpoint_dir, checkpoint_name)
@@ -422,3 +447,44 @@ class MemoryNetwork:
         self.saver.restore(session, checkpoint_fp)
         print("[*] Successfully loaded model from checkpoint {}".format(checkpoint_fp))
 
+
+
+class WeightInitializerHelper:
+    def __init__(self):
+
+        self.initializers = {
+            'word': {
+                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
+                    gain=scale
+                ),
+                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=False
+                ),
+                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=True
+                )
+            },
+            'temporal': {
+                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
+                    gain=scale
+                ),
+                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=False
+                ),
+                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=True
+                )
+            }
+        }
