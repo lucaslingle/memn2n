@@ -355,8 +355,47 @@ class MemoryNetwork:
         return tf.ones([self.J, self.d])
 
     def build_position_encoding(self):
+        """ EDIT: Facebook's matlab implementation uses a formula written differently than the formula in the paper.
+                  See https://github.com/facebook/MemNN/blob/master/MemN2N-babi-matlab/build_model.m
+
+            | % construct model
+            |if use_bow == false
+            |    config.weight = ones(config.input_dim, config.max_words, 'single');
+            |    for i = 1:config.input_dim
+            |        for j = 1:config.max_words
+            |            config.weight(i,j) = (i-(config.input_dim+1)/2)*(j-(config.max_words+1)/2);
+            |        end
+            |    end
+            |config.weight = 1 + 4 * config.weight / config.input_dim / config.max_words;
+
+            Using wolfram alpha, one may observe that the resulting formula differs from the one in the paper.
+            Most notably, there is a "2" missing from in front of the (k/d) portion of the formula in the paper.
+
+            The result is that the paper's formula corresponds to weights that adjust each coordinate k of the embedding.
+            Considered as a continuous function, the partial derivative w.r.t. the embedding coordinate k, for k = 1, ..., d
+            is
+                (j - (J/2)) / (J * d / 2)
+            whereas the partial derivative for the position encoding formula used in the official implementation
+            is
+                (j - (J/2)) / (J * d / 4)
+
+            Thus, the partial derivative from the paper is twice that of the partial derivative
+            from the formula printed in the paper. As printed, the position encoding described in the paper is flatter,
+            and may not distinguish as well between words in different positions within a sentence.
+
+            Empirical observation shows that using the formula printed in the paper has a deleterious impact on the learning process,
+            particularly for task 15 and 16, "basic deduction" and "basic induction".
+        """
+
         def l_kj(k, j):
-            return (1.0 - (float(j) / float(self.J))) - (float(k) / float(self.d)) * (1.0 - (2.0 * float(j) / float(self.J)))
+            # formula from paper
+            original_formula = (1.0 - (float(j) / float(self.J))) - (float(k) / float(self.d)) * (1.0 - (2.0 * float(j) / float(self.J)))
+
+            # corrected formula. embedding seems to need the extra variation added by the factor of 2.
+            corrected_formula = 2.0 * original_formula
+
+            return corrected_formula
+
 
         def l_j(j):
             return [l_kj(k, j) for k in range(1, self.d + 1)]

@@ -41,9 +41,9 @@ flags.DEFINE_boolean("linear_start", False, "start with linear attention (as opp
 flags.DEFINE_boolean("position_encoding", True, "position encoding [True]")
 flags.DEFINE_string("weight_tying_scheme", 'adj', "weight tying scheme: 'adj' or 'rnnlike' [adj]")
 flags.DEFINE_boolean("random_noise", False, "random noise (insert empty memories to regularize temporal embedding) [False]")
-flags.DEFINE_string("word_emb_initializer", 'truncated_normal_initializer', "weight initializer class name for word embedding weights. [random_normal_initializer]")
+flags.DEFINE_string("word_emb_initializer", 'random_normal_initializer', "weight initializer class name for word embedding weights. [random_normal_initializer]")
 flags.DEFINE_float("word_emb_init_scale", 0.1, "value for stddev or gain argument of the word_emb_initializer [0.1]")
-flags.DEFINE_string("temporal_emb_initializer", 'truncated_normal_initializer', "weight initializer class name for temporal embedding weights. [random_normal_initializer]")
+flags.DEFINE_string("temporal_emb_initializer", 'random_normal_initializer', "weight initializer class name for temporal embedding weights. [random_normal_initializer]")
 flags.DEFINE_float("temporal_emb_init_scale", 0.1, "value for stddev or gain argument of the temporal_emb_initializer [0.1]")
 
 FLAGS = flags.FLAGS
