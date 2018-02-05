@@ -1,5 +1,7 @@
 export TRIAL_DIR=trial_${TRIAL_ID}__bAbI_joint_adj_3hop_pe_ls_rn
 
+rm ./vocab/vocab_babi_en_joint.pkl
+
 # Training with linear start. Linear phase with official configs. 
 
 python main.py \
@@ -11,14 +13,12 @@ python main.py \
   --embedding_dim=50 \
   --position_encoding=True \
   --linear_start=True \
-  --epochs=20 \
-  --anneal_epochs=21 \
+  --epochs=30 \
+  --anneal_epochs=31 \
   --initial_learning_rate=0.005 \
   --random_noise=True \
   --gradient_clip=40 \
-  --gradient_noise_scale=0.00025 \
-  --word_emb_initializer=xavier_normal_initializer \
-  --temporal_emb_initializer=xavier_normal_initializer \
+  --gradient_noise_scale=0.005 \
   --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
   --checkpoint_dir=/Users/lucaslingle/git/memn2n/checkpoints/$TRIAL_DIR \
   --mode=train \
@@ -40,9 +40,7 @@ python main.py \
   --initial_learning_rate=0.005 \
   --random_noise=True \
   --gradient_clip=40 \
-  --gradient_noise_scale=0.00025 \
-  --word_emb_initializer=xavier_normal_initializer \
-  --temporal_emb_initializer=xavier_normal_initializer \
+  --gradient_noise_scale=0.001 \
   --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
   --checkpoint_dir=/Users/lucaslingle/git/memn2n/checkpoints/$TRIAL_DIR \
   --mode=train \

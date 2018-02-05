@@ -2,46 +2,6 @@ import tensorflow as tf
 import os
 from tensorflow.python.ops import control_flow_ops
 
-class WeightInitializerHelper:
-    def __init__(self):
-
-        self.initializers = {
-            'word': {
-                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
-                    gain=scale
-                ),
-                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
-                    uniform=False
-                ),
-                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
-                    uniform=True
-                )
-            },
-            'temporal': {
-                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
-                    mean=0.0, stddev=scale
-                ),
-                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
-                    gain=scale
-                ),
-                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
-                    uniform=False
-                ),
-                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
-                    uniform=True
-                )
-            }
-        }
-
 class MemoryNetwork:
     def __init__(self, vocab_size, embedding_dim, number_of_hops,
                  batch_size, number_of_memories, max_sentence_len,
@@ -143,14 +103,8 @@ class MemoryNetwork:
         }
 
         self.embedding_matrices = {
-            'word':     {
-                str(idx): self.build_word_embedding_matrix(idx)
-                for idx in range(self.nr_embedding_matrices['word'])
-            },
-            'temporal': {
-                str(idx): self.build_temporal_embedding_matrix(idx)
-                for idx in range(self.nr_embedding_matrices['temporal'])
-            }
+            'word':     [self.build_word_embedding_matrix(idx) for idx in range(self.nr_embedding_matrices['word'])],
+            'temporal': [self.build_temporal_embedding_matrix(idx) for idx in range(self.nr_embedding_matrices['temporal'])]
         }
 
         self.sentence_position_encoders = {
@@ -169,8 +123,6 @@ class MemoryNetwork:
             'allsame': tf.eye(self.d),
             'alldiff': self.build_H_mapping(scope_name='alldiff')
         }
-
-        self._vars_with_nils = set([emb for emb in self.embedding_matrices['word']])
 
         # build placeholders
         self.sentences_ints_batch, self.question_ints_batch, self.answer_ints_batch = self.build_data_inputs()
@@ -222,9 +174,8 @@ class MemoryNetwork:
         return sentences, question, answer
 
     def get_encoded_questions(self, weight_tying_scheme, q_batch):
-
         B_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['B']
-        B = self.embedding_matrices['word'][str(B_retrieval_idx)]
+        B = self.embedding_matrices['word'][B_retrieval_idx]
 
         B_word_embeddings = tf.nn.embedding_lookup(B, q_batch)  # [batch_size, J, d]
 
@@ -244,16 +195,16 @@ class MemoryNetwork:
             # get embedding matrices for memory layer i
 
             A_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['A'](i)
-            A = self.embedding_matrices['word'][str(A_retrieval_idx)]
+            A = self.embedding_matrices['word'][A_retrieval_idx]
 
             C_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['C'](i)
-            C = self.embedding_matrices['word'][str(C_retrieval_idx)]
+            C = self.embedding_matrices['word'][C_retrieval_idx]
 
             T_A_retrieval_idx = self.routing_formulas['temporal'][weight_tying_scheme]['T_A'](i)
-            T_A = self.embedding_matrices['temporal'][str(T_A_retrieval_idx)]
+            T_A = self.embedding_matrices['temporal'][T_A_retrieval_idx]
 
             T_C_retrieval_idx = self.routing_formulas['temporal'][weight_tying_scheme]['T_C'](i)
-            T_C = self.embedding_matrices['temporal'][str(T_C_retrieval_idx)]
+            T_C = self.embedding_matrices['temporal'][T_C_retrieval_idx]
 
             H = self.layer_transition_operators[weight_tying_scheme]
 
@@ -309,7 +260,7 @@ class MemoryNetwork:
 
     def get_answer_logits(self, weight_tying_scheme, memory_output_batch):
         W_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['W']
-        W = tf.transpose(self.embedding_matrices['word'][str(W_retrieval_idx)])
+        W = tf.transpose(self.embedding_matrices['word'][W_retrieval_idx])
 
         answer_logits_batch = tf.matmul(memory_output_batch, W)          # [batch_size, d] x [d, V] = [batch_size, V]
         answer_probabilities_batch = tf.nn.softmax(answer_logits_batch)  # [batch_size, V]
@@ -326,8 +277,7 @@ class MemoryNetwork:
         nonpad_embeddings = tf.get_variable('word_embedding_matrix_' + str(matrix_id),
                                             dtype='float',
                                             shape=[self.V - 1, self.d],
-                                            initializer=self.word_initializer
-                                            )
+                                            initializer=self.word_initializer)
 
         word_embedding_matrix = tf.concat([pad_embedding, nonpad_embeddings], axis = 0)
         return word_embedding_matrix
@@ -337,8 +287,7 @@ class MemoryNetwork:
         temporal_embedding_matrix = tf.get_variable('temporal_embedding_matrix_' + str(idx),
                                                     dtype='float',
                                                     shape=[self.M, self.d],
-                                                    initializer=self.nonword_initializer
-                                                    )
+                                                    initializer=self.nonword_initializer)
 
         return temporal_embedding_matrix
 
@@ -459,25 +408,17 @@ class MemoryNetwork:
         tvars = tf.trainable_variables()
         opt = tf.train.GradientDescentOptimizer(learning_rate)
 
-        print(tvars)
-
-        print([v.name for v in tvars])
-
         gradients, _ = zip(*opt.compute_gradients(loss, tvars))
-
-        print(gradients)
 
         gradients = [
             None if gradient is None else tf.clip_by_norm(gradient, gradient_clip)
-            for gradient in gradients]
-
-        print(gradients)
+            for gradient in gradients
+        ]
 
         gradients = [
             None if gradient is None else self.add_gradient_noise(gradient, stddev=gradient_noise_scale)
-            for gradient in gradients]
-
-        print(gradients)
+            for gradient in gradients
+        ]
 
         grad_updates = opt.apply_gradients(list(zip(gradients, tvars)))
         train_tensor = control_flow_ops.with_dependencies([grad_updates], loss)
@@ -506,3 +447,44 @@ class MemoryNetwork:
         self.saver.restore(session, checkpoint_fp)
         print("[*] Successfully loaded model from checkpoint {}".format(checkpoint_fp))
 
+
+
+class WeightInitializerHelper:
+    def __init__(self):
+
+        self.initializers = {
+            'word': {
+                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
+                    gain=scale
+                ),
+                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=False
+                ),
+                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=True
+                )
+            },
+            'temporal': {
+                'random_normal_initializer': lambda scale: tf.random_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'truncated_normal_initializer': lambda scale: tf.truncated_normal_initializer(
+                    mean=0.0, stddev=scale
+                ),
+                'orthogonal_initializer': lambda scale: tf.orthogonal_initializer(
+                    gain=scale
+                ),
+                'xavier_normal_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=False
+                ),
+                'xavier_uniform_initializer': lambda scale: tf.contrib.layers.xavier_initializer(
+                    uniform=True
+                )
+            }
+        }
