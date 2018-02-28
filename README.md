@@ -70,6 +70,9 @@ $ python main.py --help
 ```
 
 And you'll see some options like this:
+<details>
+  <summary>click to expand view</summary>
+
 ```
 usage: main.py [-h] [--dataset_selector DATASET_SELECTOR]
                [--data_dir DATA_DIR] [--babi_joint [BABI_JOINT]]
@@ -138,6 +141,8 @@ optional arguments:
                         temporal embedding) [False]
 
 ```
+</details>
+
 
 Replicating the results in the paper
 ------------------------------------
