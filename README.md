@@ -172,7 +172,7 @@ NOTE:
   In particular, the error rates on tasks 15 and 16 differ dramatically from what was reported in the paper. 
 
 | Task                     | Paper Result  | Our Result  |
-|--------------------------|---------------|-------------|
+|:-------------------------|--------------:|------------:|
 | 1: 1 supporting fact     |           0.0 |         0.0 |
 | 2: 2 supporting facts    |          11.4 |        14.6 |
 | 3: 3 supporting facts    |          21.9 |        30.2 |
