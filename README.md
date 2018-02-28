@@ -166,31 +166,31 @@ NOTE:
   Our results on the test set are based on only training one model, so the error rate tends to be at least a bit higher, and sometimes significantly so. 
   In particular, the error rates on tasks 15 and 16 differ dramatically from what was reported in the paper. 
 
-| Task                     | Paper result | Our result | 
-|--------------------------|--------------|------------|
-| 1: 1 supporting fact     |          0.0 |        0.0 |
-| 2: 2 supporting facts    |         11.4 |       14.6 |
-| 3: 3 supporting facts    |         21.9 |       30.2 |
-| 4: 2 argument relations  |         13.4 |        5.9 |
-| 5: 3 argument relations  |         14.4 |       13.6 |
-| 6: yes/no questions      |          2.8 |        2.9 |
-| 7: counting              |         18.3 |       15.8 |
-| 8: lists/sets            |          9.3 |        9.4 |
-| 9: simple negation       |          1.9 |        2.3 |
-| 10: indefinite knowledge |          6.5 |        6.0 |
-| 11: basic coreference    |          0.3 |        1.2 |
-| 12: conjunction          |          0.1 |        0.1 |
-| 13: compound coreference |          0.2 |        1.1 |
-| 14: time reasoning       |          6.9 |        6.7 |
-| 15: basic deduction      |          0.0 |       51.9 |
-| 16: basic induction      |          2.7 |        2.1 |
-| 17: positional reasoning |         40.4 |       44.2 |
-| 18: size reasoning       |          9.4 |       10.4 |
-| 19: path finding         |         88.0 |       89.8 |
-| 20: agent's motivation   |          0.0 |        0.0 |
-| ------------------------ | ------------ | ---------- |
-| Mean Error (%)           |         12.4 |       15.4 |
-| Failed tasks (err. > 5%) |           11 |         12 |
+| Task                     | Paper Result  | Our Result  |
+|--------------------------|---------------|-------------|
+| 1: 1 supporting fact     |           0.0 |         0.0 |
+| 2: 2 supporting facts    |          11.4 |        14.6 |
+| 3: 3 supporting facts    |          21.9 |        30.2 |
+| 4: 2 argument relations  |          13.4 |         5.9 |
+| 5: 3 argument relations  |          14.4 |        13.6 |
+| 6: yes/no questions      |           2.8 |         2.9 |
+| 7: counting              |          18.3 |        15.8 |
+| 8: lists/sets            |           9.3 |         9.4 |
+| 9: simple negation       |           1.9 |         2.3 |
+| 10: indefinite knowledge |           6.5 |         6.0 |
+| 11: basic coreference    |           0.3 |         1.2 |
+| 12: conjunction          |           0.1 |         0.1 |
+| 13: compound coreference |           0.2 |         1.1 |
+| 14: time reasoning       |           6.9 |         6.7 |
+| 15: basic deduction      |           0.0 |        51.9 |
+| 16: basic induction      |           2.7 |         2.1 |
+| 17: positional reasoning |          40.4 |        44.2 |
+| 18: size reasoning       |           9.4 |        10.4 |
+| 19: path finding         |          88.0 |        89.8 |
+| 20: agent's motivation   |           0.0 |         0.0 |
+|--------------------------|---------------|-------------|
+| Mean Error (%)           |          12.4 |        15.4 |
+| Failed tasks (err. > 5%) |            11 |          12 |
 
 A script to train a model with this configuration is provided. 
 You may run it as follows:
