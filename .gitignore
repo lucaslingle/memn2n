@@ -5,3 +5,5 @@ data
 datasets
 paper
 __pycache__/
+checkpoints/
+vocab/

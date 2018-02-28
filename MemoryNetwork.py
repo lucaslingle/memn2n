@@ -1,6 +1,7 @@
 import tensorflow as tf
 import os
 from tensorflow.python.ops import control_flow_ops
+import numpy as np
 
 class MemoryNetwork:
     def __init__(self, vocab_size, embedding_dim, number_of_hops,
@@ -300,61 +301,6 @@ class MemoryNetwork:
             )
             return H_matrix
 
-    def build_bag_of_words_encoding(self):
-        return tf.ones([self.J, self.d])
-
-    def build_position_encoding(self):
-        """ EDIT: Facebook's matlab implementation uses a formula written differently than the formula in the paper.
-                  See https://github.com/facebook/MemNN/blob/master/MemN2N-babi-matlab/build_model.m
-
-            | % construct model
-            |if use_bow == false
-            |    config.weight = ones(config.input_dim, config.max_words, 'single');
-            |    for i = 1:config.input_dim
-            |        for j = 1:config.max_words
-            |            config.weight(i,j) = (i-(config.input_dim+1)/2)*(j-(config.max_words+1)/2);
-            |        end
-            |    end
-            |config.weight = 1 + 4 * config.weight / config.input_dim / config.max_words;
-
-            Using wolfram alpha, one may observe that the resulting formula differs from the one in the paper.
-            Most notably, there is a "2" missing from in front of the (k/d) portion of the formula in the paper.
-
-            The result is that the paper's formula corresponds to weights that adjust each coordinate k of the embedding.
-            Considered as a continuous function, the partial derivative w.r.t. the embedding coordinate k, for k = 1, ..., d
-            is
-                (j - (J/2)) / (J * d / 2)
-            whereas the partial derivative for the position encoding formula used in the official implementation
-            is
-                (j - (J/2)) / (J * d / 4)
-
-            Thus, the partial derivative from the paper is twice that of the partial derivative
-            from the formula printed in the paper. As printed, the position encoding described in the paper is flatter,
-            and may not distinguish as well between words in different positions within a sentence.
-
-            Empirical observation shows that using the formula printed in the paper has a deleterious impact on the learning process,
-            particularly for task 15 and 16, "basic deduction" and "basic induction".
-        """
-
-        def l_kj(k, j):
-            # formula from paper
-            original_formula = (1.0 - (float(j) / float(self.J))) - (float(k) / float(self.d)) * (1.0 - (2.0 * float(j) / float(self.J)))
-
-            # corrected formula. embedding seems to need the extra variation added by the factor of 2.
-            corrected_formula = 2.0 * original_formula
-
-            return corrected_formula
-
-
-        def l_j(j):
-            return [l_kj(k, j) for k in range(1, self.d + 1)]
-
-        l_list = [l_j(j) for j in range(1, self.J + 1)]
-
-        l = tf.constant(l_list, shape=[self.J, self.d], name='l')
-
-        return l
-
     def build_softmax_attention(self, memory_scores):
         return tf.nn.softmax(memory_scores, dim=1)
 
@@ -374,14 +320,17 @@ class MemoryNetwork:
         return attn
 
     def build_loss_func(self, answer_logits, answers_one_hot):
-        cross_entropy_batch = tf.nn.softmax_cross_entropy_with_logits(logits=answer_logits, labels=answers_one_hot)
-
         # per section 4.2, "
         # "All training uses a batch size of 32 (but cost is not averaged over a batch),
         #  and gradients with an `2 norm larger than 40 are divided by a scalar to have norm 40. "
         #
         # in order to replicate paper's gradient clipping, we will also *NOT* average the loss over a batch, but sum it.
         #
+        cross_entropy_batch = tf.nn.softmax_cross_entropy_with_logits(
+            logits=answer_logits,
+            labels=answers_one_hot
+        )
+
         summed_cross_entropy_batch = tf.reduce_sum(cross_entropy_batch, 0)
 
         predictions_batch = tf.argmax(answer_logits, 1)
@@ -393,6 +342,8 @@ class MemoryNetwork:
 
     def add_gradient_noise(self, t, stddev=1e-3, name=None):
         """
+        [Borrowed from DomLuna's implementation. Not part of original paper.]
+
         Adds gradient noise as described in http://arxiv.org/abs/1511.06807 [2].
         The input Tensor `t` should be a gradient.
         The output will be `t` + gaussian noise.
@@ -421,9 +372,8 @@ class MemoryNetwork:
         ]
 
         grad_updates = opt.apply_gradients(list(zip(gradients, tvars)))
-        train_tensor = control_flow_ops.with_dependencies([grad_updates], loss)
-        return train_tensor
-
+        train_op = control_flow_ops.with_dependencies([grad_updates], loss)
+        return train_op
 
     def save(self, session, checkpoint_dir, checkpoint_name='memn2n_model'):
         checkpoint_fp = os.path.join(checkpoint_dir, checkpoint_name)
@@ -447,6 +397,38 @@ class MemoryNetwork:
         self.saver.restore(session, checkpoint_fp)
         print("[*] Successfully loaded model from checkpoint {}".format(checkpoint_fp))
 
+    def build_bag_of_words_encoding(self):
+        return tf.ones([self.J, self.d])
+
+    def build_position_encoding(self):
+        """
+        Position Encoding as done in Facebook's actual implementation.
+        Not the same as in their paper. Paper encoding ranges from 0-1. This ranges from 0-2.
+
+        In both cases, the idea is to adjust the coordinates of the word embedding in a ramp-like manner,
+        that is itself is completely linear for a fixed word position.
+
+        The slope of the ramp along the embedding coordinates is a function of the word position itself.
+        This is, of course, what makes the word positions distinguishable.
+
+        Here's the wolfram alpha plot of both formulas, for J = 20 and d = 50.
+        FB formula:
+                    https://www.wolframalpha.com/input/?i=1+%2B+4+*+((y+-+(20+%2B+1)+%2F+2)+*+(x+-+(50+%2B+1)+%2F+2))+%2F+(20+*+50)+for+0+%3C+x+%3C+50+and+0+%3C+y+%3C+20
+        Paper formula:
+                    https://www.wolframalpha.com/input/?i=(1.0+-+(y+%2F+20))+-+(x+%2F+50)+*+(1.0+-+(2.0+*+y+%2F+20))+for+0+%3C+x+%3C+50+and+0+%3C+y+%3C+20
+        """
+        encoding = np.ones((self.J, self.d), dtype=np.float32)
+
+        j_mid = ((self.J + 1) / 2.0)
+        k_mid = ((self.d + 1) / 2.0)
+
+        for j in range(1, self.J + 1):
+            for k in range(1, self.d + 1):
+                encoding[j - 1, k - 1] = (j - j_mid) * (k - k_mid)
+
+        encoding = 1 + 4 * (encoding / (self.J * self.d))
+        l = tf.constant(encoding, shape=[self.J, self.d], name='l')
+        return l
 
 
 class WeightInitializerHelper:
