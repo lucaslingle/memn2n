@@ -168,259 +168,41 @@ NOTE:
 
 | Task                     | Paper result | Our result | 
 |--------------------------|--------------|------------|
-| 1: 1 supporting fact     |          0.0 |        1.4 |
-| 2: 2 supporting facts    |         11.4 |       14.1 |
-| 3: 3 supporting facts    |         21.9 |       33.9 |
-| 4: 2 argument relations  |         13.4 |       17.9 |
-| 5: 3 argument relations  |         14.4 |       16.4 |
-| 6: yes/no questions      |          2.8 |        6.9 |
-| 7: counting              |         18.3 |       40.5 |
-| 8: lists/sets            |          9.3 |       15.7 |
-| 9: simple negation       |          1.9 |        3.5 |
-| 10: indefinite knowledge |          6.5 |        5.4 |
-| 11: basic coreference    |          0.3 |        0.8 |
-| 12: conjunction          |          0.1 |        0.5 |
-| 13: compound coreference |          0.2 |        0.7 |
-| 14: time reasoning       |          6.9 |        8.2 |
-| 15: basic deduction      |          0.0 |       26.7 |
-| 16: basic induction      |          2.7 |       51.9 |
-| 17: positional reasoning |         40.4 |       43.5 |
-| 18: size reasoning       |          9.4 |       10.2 |
-| 19: path finding         |         88.0 |       90.7 |
-| 20: agent's motivation   |          0.0 |        2.6 |
+| 1: 1 supporting fact     |          0.0 |        0.0 |
+| 2: 2 supporting facts    |         11.4 |       14.6 |
+| 3: 3 supporting facts    |         21.9 |       30.2 |
+| 4: 2 argument relations  |         13.4 |        5.9 |
+| 5: 3 argument relations  |         14.4 |       13.6 |
+| 6: yes/no questions      |          2.8 |        2.9 |
+| 7: counting              |         18.3 |       15.8 |
+| 8: lists/sets            |          9.3 |        9.4 |
+| 9: simple negation       |          1.9 |        2.3 |
+| 10: indefinite knowledge |          6.5 |        6.0 |
+| 11: basic coreference    |          0.3 |        1.2 |
+| 12: conjunction          |          0.1 |        0.1 |
+| 13: compound coreference |          0.2 |        1.1 |
+| 14: time reasoning       |          6.9 |        6.7 |
+| 15: basic deduction      |          0.0 |       51.9 |
+| 16: basic induction      |          2.7 |        2.1 |
+| 17: positional reasoning |         40.4 |       44.2 |
+| 18: size reasoning       |          9.4 |       10.4 |
+| 19: path finding         |         88.0 |       89.8 |
+| 20: agent's motivation   |          0.0 |        0.0 |
 | ------------------------ | ------------ | ---------- |
-| Mean Error (%)           |         12.4 |       16.2 |
-| Failed tasks (err. > 5%) |           11 |         14 |
+| Mean Error (%)           |         12.4 |       15.4 |
+| Failed tasks (err. > 5%) |           11 |         12 |
 
-A script to train a model with this configuration can be found below:  
-
-<details>
-  <summary>expand view</summary>
-
+A script to train a model with this configuration is provided. 
+You may run it as follows:
 ```
-# Linear Start: linear phase
-
-python main.py \
-  --dataset_selector=babi \
-  --data_dir=datasets/bAbI/tasks_1-20_v1-2/en/ \
-  --babi_joint=True \
-  --position_encoding=True \
-  --linear_start=True \
-  --initial_learning_rate=0.005 \
-  --random_noise=True \
-  --epochs=20 \
-  --embedding_dim=50 \
-  --anneal_epochs=15 \
-  --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
-  --mode=train \
-  --load=False
-
-# Linear Start: softmax phase
-
-python main.py \
-  --dataset_selector=babi \
-  --data_dir=datasets/bAbI/tasks_1-20_v1-2/en/ \
-  --babi_joint=True \
-  --position_encoding=True \
-  --linear_start=False \
-  --initial_learning_rate=0.01 \
-  --random_noise=True \
-  --epochs=40 \
-  --embedding_dim=50 \
-  --anneal_epochs=15 \
-  --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
-  --mode=train \
-  --load=True
-
-# Test the trained model on the joint bAbI tasks:
-
-python main.py \
-  --dataset_selector=babi \
-  --data_dir=datasets/bAbI/tasks_1-20_v1-2/en/ \
-  --babi_joint=True \
-  --position_encoding=True \
-  --linear_start=False \
-  --random_noise=False \
-  --embedding_dim=50 \
-  --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
-  --mode=test \
-  --load=True
-```
-</details>
-<br>
-
-In addition, there were some ambiguities in the paper, and the script above resolves them, in what I believe to be the correct way. 
-You can find the details of my thinking below. It's written a bit like an FAQ. 
-
-<details>
-  <summary>expand view</summary>
-
+export TRIAL_ID=my_trial_1
+source scripts/run_joint_trial_i.sh
 ```
 
-1. - Question: 
-     What is the frequency that the validation error rate should be checked, when deciding 
-     when to end the linear phase of LS training?
-
-   - Answer:
-     This implementation doesn't automatically switch from linear to softmax during LS training, 
-     so this isn't something I had to resolve in order to get the code running. 
-
-     Once I add some kind of automatic handoff between the two phases of LS training, I expect to have a better answer. 
-
-     For now, I would suggest just using 20 epochs for the linear phase, during joint training on the 1k dataset.
-     It seems to work well.
-
-
-2. - Question: 
-     In section 4.2, the paper states unconditionally that they use an initial learning rate of 0.01. 
-     Shortly thereafter, the paper describes a two-stage process and says "we refer to this as LS training". 
-     The paper then says that "in LS training, the initial learning rate is set to 0.005." 
-
-     Taken together, this seems to imply that the term "LS training" refers to the two-stage training process,
-     and that the initial learning rate of this two-stage process is 0.005. 
-
-     Given that only one learning rate has been provided in the context of LS training, 
-     it seems that the learning rate used during the softmax phase of LS training 
-     continues over from the annealed learning rate used during the linear phase. 
-     
-     But when I tried this, my model learned too slowly. What happened? Did I assume wrong?
-
-   - Answer:
-     Yes. My current understanding is that the authors only intended for the term "LS training" 
-     to refer to the first stage of the two-phase process. 
-
-     Consequently, their remark about the 0.005 initial learning rate for "LS training" 
-     was intended only to refer to the initial learning rate of the linear phase.
-
-     Facebook's official implementation appears to use two different variables for the 
-     initial learning rate of the linear phase and the initial learning rate of the softmax phase. 
-     Their code does not have any functionality for passing the learning rate from the linear phase to the softmax phase. 
-     Furthermore, they configure the anneal epochs so as to not actually perform any annealing during the linear phase. 
-
-     For ease of use, I will summarize all official configurations on the 1k bAbI dataset:
-
-     For the 1k bAbI dataset with joint training, with linear start: 
-     embedding dimension: 50
-     linear phase epochs: 30
-     linear phase anneal epochs: 31 (i.e., no annealing)
-     linear phase initial learning rate: 0.005
-     softmax phase epochs: 60
-     softmax phase anneal epochs: 15
-     softmax phase initial learning rate: 0.005
-     
-     For the 1k bAbI dataset with single-task training, with linear start: 
-     embedding dimension: 20
-     linear phase epochs: 20
-     linear phase anneal epochs: 21 (i.e., no annealing)
-     linear phase initial learning rate: 0.005
-     softmax phase epochs: 100
-     softmax phase anneal epochs: 25
-     softmax phase initial learning rate: 0.005
-
-     For the 1k bAbI dataset with joint training, softmax only:
-     embedding dimension: 50
-     softmax phase epochs: 60
-     softmax phase anneal epochs: 15
-     softmax phase initial learning rate: 0.01
-
-     For the 1k bAbI dataset with single-task training, softmax only:
-     embedding dimension: 20
-     softmax phase epochs: 100
-     softmax phase anneal epochs: 25
-     softmax phase initial learning rate: 0.01
-
-
-3. - Question:
-     In Section 4.1, there is a passage on "injecting random noise". 
-     In this passage, what is meant by "10% of empty memories" being added? 
-
-   - Answer:
-     Three matters to resolve here. 
-
-     Definition of 'empty memories':
-       Memories derived from sentences consisting entirely of the padding token ("the nil word"). 
-       The word embedding of the padding token is constrained to be the zero vector. 
-       Empty memories are thus zero vectors. 
-
-     Definition of 'added':
-       Nonempty memories are from sentences. By default, the number of sentences determines the position 
-       the encoded memories occupy in the memory bank, because adjacent sentences have adjacent memory vectors.
-
-       By 'added', the authors mean interspersed. In other words, the relative order of the nonempty memories 
-       in the memory bank will not change, but their positions in memory may change, because other rows 
-       of the memory bank are now "occupied" by the empty memories. 
-
-     Actual number of empty memories: 
-       Based on Facebook's implementation, the number of empty memories to be interspersed 
-       should be 10% of the number of nonempty memories. 
-
-       To reiterate: they do NOT intersperse 10% of the total number of empty memories. 
-
-
-4. - Question:
-     During Random Noise training, the number of empty memories to be interspersed must be constant, 
-     but they must be interspersed with uniform density throughout the nonempty memories. 
-
-     How did the authors do that?
-
-   - Answer:
-     Facebook's implementation achieves this by randomly generating a permutation, which they use 
-     to obtain integers that can be used as the target memory locations of the nonempty memories. 
-     This can be done in a manner that preserves the original order of the nonempty memories. 
-     
-     This implementation follows the same approach. 
-
-5. - Question:
-     I noticed you used tf.clip_by_norm for gradient clipping, and are clipping each tensor separately. 
-     Why did you do that? That's not the correct way to do gradient clipping. Even the tensorflow documentation says so.  
-
-   - Answer:
-     My initial implementation used tf.clip_by_global_norm. However, after over a hundred trials of different configurations, 
-     I found that the model could not adequately pass bAbI task 15, "basic deduction." By contrast, the authors of the paper 
-     were able to get a 0.0% test error rate using just position encoding and training only on task 15. 
-
-     By contrast, by models had a 40-50% error rate when I did that. 
-
-     My model also did not improve on task 15 even when I used linear start, or random noise, or both. 
-     Even running a bag-of-words model, I could not match their test error rate of 24.3% on task 15. 
-
-     After extensive debugging, I eventually narrowed the issue down to one difference: 
-     the authors in the paper state in Section 5 that they used global gradient clipping for the Language Modeling experiments. 
-     They continued their remarks in a footnote, stating that "In the QA tasks, the gradient of each weight matrix is measured separately". 
-
-     I confirmed this by looking at Facebook's Matlab implementation of MemN2N for the bAbI tasks, 
-     and found that they were indeed clipping the gradient of each matrix separately. See nn/Weight.m and nn/LookupTable.m. 
-     Each lookup table contains a 2D tensor-like variable of type Weight, and the LookupTable class's 'update' function passes 
-     the gradient update straight to the Weight variable's 'update' function. Finally, the nn/Weight.m file shows that the 
-     Weight class's update function clips the gradient immediately.  
-
-     Right now, I am most interested in making sure I can completely reproduce the results of the paper, 
-     and to that end, I plan on following the official implementation. 
-
-6. - Question:
-     Why do you multiply the formula for the position encoding by 2?
- 
-   - Answer:
-     The formula in the paper differs from the official implementation algebraically.
-     Both formulas can be considered as formal polynomial over variables k and j with rational coefficients. 
-     Considered as formal polynomials, the expression in the paper is not equivalent to the formula in the paper. 
-
-     More strikingly, the official implementation includes all the terms from the formula in the paper, but multiplied by a factor of two. 
-     However, the official implementation also includes some terms of degree 1 that are not in the paper, 
-     but these have small coefficients and do not account for the discrepancy. 
-     
-     In particular:
-     The maximum value of the expression used by facebook's implementation is 2. 
-     The maximum value of the expression used in the paper is 1. 
-     
-     Empirical observation shows that facebook's implementation for position encoding vastly outperforms the formula given in the paper. 
-     This is particularly pronounced on tasks 15 and 16, deduction and induction. 
-
-     I believe the difference in performance may be related to the relative influence of the temporal embedding over the resulting encoded memories. 
-     Without the additional amplification given by position encoding, the model cannot adequately discern the words encoded, and fails to learn to properly 
-     allocate attention to the memories containing the necessary supporting facts. 
-
-     I have therefore opted to multiply by 2. 
+And when it is done, you can test your results by running:
 ```
-</details>
+source scripts/test_each_task_for_trial_i.sh
+```
+
+
 
