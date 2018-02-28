@@ -1,6 +1,7 @@
 export TRIAL_DIR=trial_${TRIAL_ID}__bAbI_joint_adj_3hop_pe_ls_rn
 
 rm ./vocab/vocab_babi_en_joint.pkl
+rm ./vocab/max_sentence_len_babi_en_joint.pkl
 
 # Training with linear start. Linear phase with official configs. 
 
@@ -18,7 +19,7 @@ python main.py \
   --initial_learning_rate=0.005 \
   --random_noise=True \
   --gradient_clip=40 \
-  --gradient_noise_scale=0.005 \
+  --gradient_noise_scale=0.001 \
   --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
   --checkpoint_dir=/Users/lucaslingle/git/memn2n/checkpoints/$TRIAL_DIR \
   --mode=train \

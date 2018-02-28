@@ -183,114 +183,118 @@ class bAbI:
         vocab_dict = dict({w: i for i, w in enumerate(vocab_list)})
         return vocab_dict
 
-    def save_vocab_dict_to_file(self, vocab_dict, vocab_fp):
-        with open(vocab_fp, 'wb') as handle:
-            pickle.dump(vocab_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
-            print("[*] Successfully saved vocab dictionary as {}".format(vocab_fp))
+    def save_vocab_dict_to_file(self, data, fp):
+        with open(fp, 'wb') as handle:
+            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            print("[*] Successfully saved vocab dictionary to file {}".format(fp))
             return
 
-    def load_vocab_dict_from_file(self, vocab_fp):
-        with open(vocab_fp, 'rb') as handle:
+    def load_vocab_dict_from_file(self, fp):
+        with open(fp, 'rb') as handle:
             vocab_dict = pickle.load(handle)
-            print("[*] Successfully loaded vocab dictionary from {}".format(vocab_fp))
+            print("[*] Successfully loaded vocab dictionary from file {}".format(fp))
             return vocab_dict
 
-    def prepare_data_for_single_task(self, data_dir, task_id, validation_frac, random_seed=1, vocab_dict=None):
-        #np.random.seed(random_seed)
+    def save_max_sentence_len_to_file(self, data, fp):
+        with open(fp, 'wb') as handle:
+            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            print("[*] Successfully saved max_sentence_len to file {}".format(fp))
+            return
 
-        train_fp = self.get_fp_for_task(data_dir, 'train', task_id)
-        test_fp = self.get_fp_for_task(data_dir, 'test', task_id)
+    def load_max_sentence_len_from_file(self, fp):
+        with open(fp, 'rb') as handle:
+            max_sentence_len = pickle.load(handle)
+            print("[*] Successfully loaded max_sentence_len from file {}".format(fp))
+            return max_sentence_len
 
-        train_stories = self.get_stories(train_fp)
-        test_stories = self.get_stories(test_fp)
+    def _prepare_data_for_task_ids(self, data_dir, task_ids, validation_frac, vocab_dict=None, max_sentence_len=None):
 
-        np.random.shuffle(train_stories)
-        np.random.shuffle(test_stories)
+        train_sqa_tuples_for_all_tasks = []
+        validation_sqa_tuples_for_all_tasks = []
+        test_sqa_tuples_for_all_tasks = []
 
-        split_idx = len(train_stories) - max(1, int(validation_frac * len(train_stories)))
-        _train_stories_tmp = train_stories[:]
-        train_stories = _train_stories_tmp[0:split_idx]
-        validation_stories = _train_stories_tmp[split_idx:]
-
-        train_sqa_tuples = [sqa for story in train_stories for sqa in story.sqa_tuples]
-        validation_sqa_tuples = [sqa for story in validation_stories for sqa in story.sqa_tuples]
-        test_sqa_tuples = [sqa for story in test_stories for sqa in story.sqa_tuples]
-
-        sqa_tuples_for_max_length = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
-        sqa_tuples_for_vocab = train_sqa_tuples
-
-        if vocab_dict is None:
-            vocab_dict = self.compute_vocab_dict_from_sqa_tuples(sqa_tuples_for_vocab)
-
-        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(sqa_tuples_for_max_length)
-
-        self.vocab_dict = vocab_dict
-        self.max_sentence_len = max_sentence_len
-
-        f = lambda x: self.vocab_dict[x] if x in self.vocab_dict else self.vocab_dict[self.unknown_token]
-
-        train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
-        validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
-        test_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in test_sqa_tuples]
-
-        np.random.shuffle(train_sqa_tuples_ints)
-        np.random.shuffle(validation_sqa_tuples_ints)
-        np.random.shuffle(test_sqa_tuples_ints)
-
-        return train_sqa_tuples_ints, validation_sqa_tuples_ints, test_sqa_tuples_ints
-
-    def prepare_data_for_joint_tasks(self, data_dir, validation_frac, random_seed=1, vocab_dict=None):
-        #np.random.seed(random_seed)
-
-        train_sqa_tuples = []
-        validation_sqa_tuples = []
-        test_sqa_tuples = []
-
-        for task_id in self.file_partition_values['task_id']:
+        for task_id in task_ids:
             train_fp = self.get_fp_for_task(data_dir, 'train', task_id)
             test_fp = self.get_fp_for_task(data_dir, 'test', task_id)
 
-            train_stories = self.get_stories(train_fp)
-            test_stories = self.get_stories(test_fp)
+            train_stories_for_task = self.get_stories(train_fp)
+            test_stories_for_task = self.get_stories(test_fp)
 
-            np.random.shuffle(train_stories)
-            np.random.shuffle(test_stories)
+            # each task has stories, each story has SQA tuples
+            # SQA tuples consist of
+            #   - the story's cumulative context up to the question,
+            #   - the question,
+            #   - the answer
 
-            split_idx = len(train_stories) - max(1, int(validation_frac * len(train_stories)))
-            _train_stories_tmp = train_stories[:]
-            train_stories = _train_stories_tmp[0:split_idx]
-            validation_stories = _train_stories_tmp[split_idx:]
+            train_sqa_tuples_for_task = [sqa for story in train_stories_for_task for sqa in story.sqa_tuples]
+            test_sqa_tuples_for_task = [sqa for story in test_stories_for_task for sqa in story.sqa_tuples]
 
-            train_sqa_tuples_for_task = [sqa for story in train_stories for sqa in story.sqa_tuples]
-            validation_sqa_tuples_for_task = [sqa for story in validation_stories for sqa in story.sqa_tuples]
-            test_sqa_tuples_for_task = [sqa for story in test_stories for sqa in story.sqa_tuples]
+            # Our train/val split will be stratified by task.
+            #
+            # However, the split will be performed over the list of SQA tuples, not the list of stories.
+            # Thus, there may be questions from any given story that are omitted from training set,
+            # but we aren't omitting entire stories from the training set
+            #
+            # Note that, during training, the list of SQA tuples may have the SQA tuples from a given story
+            # presented out of order,
+            # e.g., we might train on an SQA tuple   ([S1,S2,S3], Q2, A2)
+            #       before training on the SQA tuple ([S1,S2], Q1, A1)    from that story.
+            #
+            # However, the order of the sentences contained WITHIN any given SQA tuple will remain intact.
+            # I.e., S1 really is the first sentence, S2 really is the second sentence, etc.
+            #
+            # This is because the behavior of np.random.shuffle does not change the contents of each element of the list
 
-            train_sqa_tuples.extend(train_sqa_tuples_for_task)
-            validation_sqa_tuples.extend(validation_sqa_tuples_for_task)
-            test_sqa_tuples.extend(test_sqa_tuples_for_task)
+            np.random.shuffle(train_sqa_tuples_for_task)
 
-        sqa_tuples_for_max_length = train_sqa_tuples + validation_sqa_tuples + test_sqa_tuples
-        sqa_tuples_for_vocab = train_sqa_tuples
+            validation_frac_size = math.floor(validation_frac * len(train_sqa_tuples_for_task))
+            split_idx = len(train_sqa_tuples_for_task) - validation_frac_size
+
+            _tmp = train_sqa_tuples_for_task[:]
+            train_sqa_tuples_for_task = _tmp[0:split_idx]
+            validation_sqa_tuples_for_task = _tmp[split_idx:]
+
+            train_sqa_tuples_for_all_tasks.extend(train_sqa_tuples_for_task)
+            validation_sqa_tuples_for_all_tasks.extend(validation_sqa_tuples_for_task)
+            test_sqa_tuples_for_all_tasks.extend(test_sqa_tuples_for_task)
+
+        # once we are done with all tasks, shuffle the training set again.
+        np.random.shuffle(train_sqa_tuples_for_all_tasks)
+
+        sqa_tuples_for_vocab = []
+        sqa_tuples_for_vocab.extend(train_sqa_tuples_for_all_tasks)
+
+        sqa_tuples_for_max_sentence_len = []
+        sqa_tuples_for_max_sentence_len.extend(train_sqa_tuples_for_all_tasks)
+        sqa_tuples_for_max_sentence_len.extend(validation_sqa_tuples_for_all_tasks)
+        sqa_tuples_for_max_sentence_len.extend(test_sqa_tuples_for_all_tasks)
 
         if vocab_dict is None:
             vocab_dict = self.compute_vocab_dict_from_sqa_tuples(sqa_tuples_for_vocab)
 
-        max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(sqa_tuples_for_max_length)
+        if max_sentence_len is None:
+            max_sentence_len = self.compute_max_sentence_len_from_sqa_tuples(sqa_tuples_for_max_sentence_len)
 
         self.vocab_dict = vocab_dict
         self.max_sentence_len = max_sentence_len
 
         f = lambda x: self.vocab_dict[x] if x in self.vocab_dict else self.vocab_dict[self.unknown_token]
 
-        train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples]
-        validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples]
-        test_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in test_sqa_tuples]
-
-        np.random.shuffle(train_sqa_tuples_ints)
-        np.random.shuffle(validation_sqa_tuples_ints)
-        np.random.shuffle(test_sqa_tuples_ints)
+        train_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in train_sqa_tuples_for_all_tasks]
+        validation_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in validation_sqa_tuples_for_all_tasks]
+        test_sqa_tuples_ints = [Story.apply_to_sqa_tokens(sqa, f) for sqa in test_sqa_tuples_for_all_tasks]
 
         return train_sqa_tuples_ints, validation_sqa_tuples_ints, test_sqa_tuples_ints
+
+    def prepare_data_for_single_task(self, data_dir, task_id, validation_frac, vocab_dict=None, max_sentence_len=None):
+        task_ids = [task_id]
+        tr, va, te = self._prepare_data_for_task_ids(data_dir, task_ids, validation_frac, vocab_dict, max_sentence_len)
+        return tr, va, te
+
+    def prepare_data_for_joint_tasks(self, data_dir, validation_frac, vocab_dict=None, max_sentence_len=None):
+        task_ids = self.file_partition_values['task_id']
+        tr, va, te = self._prepare_data_for_task_ids(data_dir, task_ids, validation_frac, vocab_dict, max_sentence_len)
+        return tr, va, te
 
     @staticmethod
     def standardize_features(sqa, max_sentence_length_J, number_of_memories_M, pad_id, add_empty_memories=False):

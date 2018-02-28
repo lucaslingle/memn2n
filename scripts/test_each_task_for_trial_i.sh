@@ -15,6 +15,7 @@ for ((i=1; i<=20; i++)); do
     --mode=test \
     --load=True \
     --vocab_filename=vocab_babi_en_joint.pkl \
+    --max_sentence_len_filename=max_sentence_len_babi_en_joint.pkl \
    2> /dev/null \
    | fgrep error_rate 
 done

@@ -15,7 +15,9 @@ flags.DEFINE_boolean("babi_joint", False, "run jointly on all bAbI tasks, if app
 flags.DEFINE_integer("babi_task_id", 1, "bAbI task to train on, if applicable [1]")
 flags.DEFINE_float("validation_frac", 0.1, "train-validation split [0.1]")
 flags.DEFINE_string("vocab_dir", 'vocab/', "directory to persist vocab-int dictionary [vocab/]")
-flags.DEFINE_string("vocab_filename", "", "optional flag to allow us to load a specific vocab file")
+flags.DEFINE_string("vocab_filename", "", "optional flag to allow us to load a persisted vocab dictionary from a pkl file")
+flags.DEFINE_string("max_sentence_len_filename", "", "optional flag to allow us to load a persisted max_sentence_len value from a pkl file")
+
 
 # checkpoint configs
 flags.DEFINE_string("checkpoint_dir", "/Users/lucaslingle/git/memn2n/checkpoints/", "checkpoints path [/Users/lucaslingle/git/memn2n/checkpoints/]")
@@ -62,19 +64,34 @@ def get_vocab_filename_from_settings(FLAGS):
 
     return candidate_vocab_filename
 
-def compute_and_save_babi_vocab(FLAGS, save_fp):
+def get_max_sentence_len_filename_from_settings(FLAGS):
+    if len(FLAGS.max_sentence_len_filename) > 0:
+        candidate_max_sentence_len_filename = FLAGS.max_sentence_len_filename
+        return candidate_max_sentence_len_filename
+
+    candidate_max_sentence_len_filename = 'max_sentence_len_{}_{}_{}.pkl'.format(
+            FLAGS.dataset_selector,
+            FLAGS.data_dir.strip("/").split("/")[-1],
+            'joint' if FLAGS.babi_joint else 'task_{}'.format(FLAGS.babi_task_id)
+    )
+
+    return candidate_max_sentence_len_filename
+
+def compute_and_save_babi_vocab_meta(FLAGS, vocab_save_fp, max_sentence_len_save_fp):
     # compute and save a vocab dictionary as a pickle file
 
     babi = bb.bAbI()
 
     if FLAGS.babi_joint:
         _, _, _ = babi.prepare_data_for_joint_tasks(
-            FLAGS.data_dir, FLAGS.validation_frac, vocab_dict=None)
+            FLAGS.data_dir, FLAGS.validation_frac, vocab_dict=None, max_sentence_len=None)
     else:
         _, _, _ = babi.prepare_data_for_single_task(
-            FLAGS.data_dir, FLAGS.babi_task_id, FLAGS.validation_frac, vocab_dict=None)
+            FLAGS.data_dir, FLAGS.babi_task_id, FLAGS.validation_frac, vocab_dict=None, max_sentence_len=None)
 
-    babi.save_vocab_dict_to_file(vocab_dict=babi.vocab_dict, vocab_fp=save_fp)
+    babi.save_vocab_dict_to_file(data=babi.vocab_dict, fp=vocab_save_fp)
+    babi.save_max_sentence_len_to_file(data=babi.max_sentence_len, fp=max_sentence_len_save_fp)
+    return
 
 def main():
 
@@ -84,29 +101,45 @@ def main():
         learning_rate = FLAGS.initial_learning_rate
 
         candidate_vocab_filename = get_vocab_filename_from_settings(FLAGS)
+        candidate_max_sentence_len_filename = get_max_sentence_len_filename_from_settings(FLAGS)
 
         candidate_vocab_fp = os.path.join(FLAGS.vocab_dir, candidate_vocab_filename)
         vocab_fp_exists = os.path.exists(candidate_vocab_fp)
 
-        # prepare vocab if it doesn't exist
-        if not vocab_fp_exists:
-            if FLAGS.load:
-                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), candidate_vocab_fp)
+        candidate_max_sentence_len_fp = os.path.join(FLAGS.vocab_dir, candidate_max_sentence_len_filename)
+        max_sentence_len_fp_exists = os.path.exists(candidate_max_sentence_len_fp)
 
-            compute_and_save_babi_vocab(FLAGS, candidate_vocab_fp)
+        # must compute and persist vocab metadata if we aren't loading anything
+        if not FLAGS.load:
+            compute_and_save_babi_vocab_meta(FLAGS, candidate_vocab_fp, candidate_max_sentence_len_fp)
+
+        if FLAGS.load and not vocab_fp_exists:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), candidate_vocab_fp)
+
+        if FLAGS.load and not max_sentence_len_fp_exists:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), candidate_max_sentence_len_fp)
 
         with tf.Graph().as_default() as graph:
 
             # load our vocab dictionary
             vocab_dict = babi.load_vocab_dict_from_file(candidate_vocab_fp)
+            max_sentence_len = babi.load_max_sentence_len_from_file(candidate_max_sentence_len_fp)
 
-            # prepare the data, and store the max sentence length
+            # prepare the data
             if FLAGS.babi_joint:
                 train, val, test = babi.prepare_data_for_joint_tasks(
-                    FLAGS.data_dir, FLAGS.validation_frac, vocab_dict=vocab_dict)
+                    FLAGS.data_dir, FLAGS.validation_frac,
+                    vocab_dict=vocab_dict, max_sentence_len=max_sentence_len
+                )
             else:
                 train, val, test = babi.prepare_data_for_single_task(
-                    FLAGS.data_dir, FLAGS.babi_task_id, FLAGS.validation_frac, vocab_dict=vocab_dict)
+                    FLAGS.data_dir, FLAGS.babi_task_id, FLAGS.validation_frac,
+                    vocab_dict=vocab_dict, max_sentence_len=max_sentence_len
+                )
+
+            print("len(vocab_dict) is {}, and max_sentence_len is {}".format(
+                len(vocab_dict), max_sentence_len
+            ))
 
             # instantiate the model
             model = MemoryNetwork(vocab_size=len(vocab_dict),
@@ -137,9 +170,19 @@ def main():
             nr_test_examples = len(test)
 
             if FLAGS.mode == 'train':
+                print("mode: train")
+                print("nr_training_examples: {}, nr_validation_examples: {}, nr_test_examples: {}".format(
+                    nr_training_examples, nr_validation_examples, nr_test_examples
+                ))
 
                 for epoch in range(1, FLAGS.epochs + 1):
+
+                    # reshuffle training data before commencing an epoch,
+                    # get new batches each time rather than cycling thru previously seen batches
+                    # (should improve quality of gradient estimates a bit)
+
                     np.random.shuffle(train)
+
                     for i in range(0, nr_training_examples, FLAGS.batch_size):
 
                         if (i + FLAGS.batch_size) > nr_training_examples:
