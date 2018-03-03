@@ -186,19 +186,14 @@ def main():
                     np.random.shuffle(train)
 
                     for i in range(0, nr_training_examples, FLAGS.batch_size):
-                        sqa_batch = None
+
+                        if (i + FLAGS.batch_size) > nr_training_examples:
+                            break
 
                         start_idx = i
                         end_idx = i + FLAGS.batch_size
 
-                        if (i + FLAGS.batch_size) > nr_training_examples:
-                            _tmp = train[0:i][:]
-                            sqa_tuples_to_pad_batch = list(filter(lambda sqa: sqa.story_task_id == 15, _tmp))
-                            np.random.shuffle(sqa_tuples_to_pad_batch)
-                            sqa_batch = train[start_idx:]
-                            sqa_batch.extend(sqa_tuples_to_pad_batch[0:(FLAGS.batch_size-(nr_training_examples-start_idx))])
-                        else:
-                            sqa_batch = train[start_idx:end_idx]
+                        sqa_batch = train[start_idx:end_idx]
 
                         sqa_batch_standardized = list(map(
                             lambda sqa: bb.bAbI.standardize_features(
