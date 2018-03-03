@@ -8,11 +8,35 @@ export VOCAB_DIR=${REPO_DIR}/vocab/${TRIAL_DIRNAME}
 
 if [ -d "$REPO_DIR" ]; then
     echo "using $REPO_DIR as REPO_DIR"
-    else echo "ERROR:"; echo "  $REPO_DIR does not exist!"; echo "  Please change script to indicate correct REPO_DIR"; return
+    else echo "ERROR:"; 
+         echo "  $REPO_DIR does not exist!"; 
+         echo "  Please change script to indicate correct REPO_DIR"; 
+         return
 fi
 
-mkdir -p $CHECKPOINT_DIR
-mkdir -p $VOCAB_DIR
+if [ ! -d "$CHECKPOINT_DIR" ]; then
+    echo "creating trial CHECKPOINT_DIR: $CHECKPOINT_DIR";
+    mkdir -p "$CHECKPOINT_DIR";
+    else echo "ERROR:"; 
+         echo "  $CHECKPOINT_DIR already exists!"; 
+         echo "  This script trains a model from scratch.";
+         echo "  To avoid overwriting checkpoints in a previous trial's CHECKPOINT_DIR,"; 
+         echo "  please set a new value for the TRIAL_ID environment variable.";
+         return
+fi
+
+if [ ! -d "$VOCAB_DIR" ]; then
+    echo "creating trial VOCAB_DIR: $VOCAB_DIR"; 
+    mkdir -p "$VOCAB_DIR";
+    else echo "ERROR:"; 
+         echo "  $VOCAB_DIR already exists!";
+         echo "  This script trains a model from scratch, and computes a random train/validation split each time."; 
+         echo "  This could result in a different vocab dictionary.";
+         echo "  To avoid overwriting the persisted vocab dictionary in a previous trial's VOCAB_DIR,";
+         echo "  please set a new value for the TRIAL_ID environment variable.";
+         return
+fi
+
 
 # Training with linear start. Linear phase with official configs.
 
@@ -30,7 +54,7 @@ python main.py \
   --initial_learning_rate=0.005 \
   --random_noise=True \
   --gradient_clip=40 \
-  --gradient_noise_scale=0.005 \
+  --gradient_noise_scale=0.000 \
   --model_name=MemN2N_bAbI_joint_adj_${number_of_hops}hop_pe_ls_rn \
   --checkpoint_dir=$CHECKPOINT_DIR \
   --vocab_dir=$VOCAB_DIR \
@@ -53,7 +77,7 @@ python main.py \
   --initial_learning_rate=0.005 \
   --random_noise=True \
   --gradient_clip=40 \
-  --gradient_noise_scale=0.005 \
+  --gradient_noise_scale=0.000 \
   --model_name=MemN2N_bAbI_joint_adj_${number_of_hops}hop_pe_ls_rn \
   --checkpoint_dir=$CHECKPOINT_DIR \
   --vocab_dir=$VOCAB_DIR \

@@ -155,6 +155,8 @@ class bAbI:
 
             if question_match:
                 story_line_nr, question, answer, supporting_facts = question_match.groups()
+                question = question.lower()
+                answer = answer.lower()
                 story.questions_update(question)
                 story.answers_update(answer)
 
@@ -165,6 +167,7 @@ class bAbI:
                         stories.append(story)
                     story = Story()
                     story.set_story_task_id(task_id)
+                sentence = sentence.lower()
                 story.sentences_update(sentence)
 
         stories.append(story)
@@ -239,7 +242,7 @@ class bAbI:
 
         for task_id in task_ids:
             train_stories_for_task = self.get_stories(data_dir, 'train', task_id)
-            test_stories_for_task = self.get_stories(data_dir, 'train', task_id)
+            test_stories_for_task = self.get_stories(data_dir, 'test', task_id)
 
             # each task has stories, each story has SQA tuples
             # SQA tuples consist of
@@ -284,8 +287,8 @@ class bAbI:
 
         sqa_tuples_for_vocab = []
         sqa_tuples_for_vocab.extend(train_sqa_tuples_for_all_tasks)
-        sqa_tuples_for_vocab.extend(validation_sqa_tuples_for_all_tasks)
-        sqa_tuples_for_vocab.extend(test_sqa_tuples_for_all_tasks)
+        #sqa_tuples_for_vocab.extend(validation_sqa_tuples_for_all_tasks)
+        #sqa_tuples_for_vocab.extend(test_sqa_tuples_for_all_tasks)
 
         sqa_tuples_for_max_sentence_len = []
         sqa_tuples_for_max_sentence_len.extend(train_sqa_tuples_for_all_tasks)

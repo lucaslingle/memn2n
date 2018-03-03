@@ -144,58 +144,67 @@ optional arguments:
 </details>
 
 
-Replicating the results in the paper
+Best performing model in the paper
 ------------------------------------
 
-For the bAbI tasks, the best performing model on the 1k dataset, in terms of mean error percentage, used the following configuration:  
+In the paper's results, the best performance on the bAbI 1k dataset, as measured by the test error rate averaged across all tasks, used the following configuration:  
 
+- One model, trained jointly on all 20 bAbI tasks
 - Adjacent weight tying scheme
 - 3 hops
 - Position Encoding (PE)
 - Linear Start (LS)
 - Random Noise (RN)
-- joint training on all 20 bAbI tasks 
-- 60 epochs
-- 15 epochs per annealing
-- 0.5 annealing constant
-- LS training: the linear phase ends when the validation error rate stops falling 
-- LS training: 0.005 initial learning rate during the linear phase
-- LS training: 0.01 initial learning rate during the softmax phase
+- Annealing constant: 0.5
+- LS linear phase initial learning rate: 0.005 
+- LS linear phase epochs: 30
+- LS linear phase annealing period: 31
+- LS softmax phase initial learning rate: 0.005
+- LS softmax phase epochs: 60
+- LS softmax phase annealing period: 15
 <br>
 
-Below are our error rates on the test set, when using this configuration.
+Some of the details in the paper for LS training are presented ambiguously, and the ambiguity was resolved by deferring to the hyperparameters used in Facebook's matlab implementation of LS training.
 
-NOTE: 
-  Paper results on the test set are based on the model with the best results on the training set, out of 10 random initializations.  
+Replicating the results of the best performing model
+-----------------------------------------------------
 
-  Our results on the test set are based on only training one model, so the error rate tends to be at least a bit higher, and sometimes significantly so. 
-  In particular, the error rates on tasks 15 and 16 differ dramatically from what was reported in the paper. 
+Paper results:
+- Results were computed by the authors by running 10 trials. 
+- In each trial, the given model architecture is trained according to the given training regime.
+- In each trial, the weights are initialized randomly, and the data is shuffled randomly. 
+- The instance of the trained model with the lowest training error is then evaluated on the test set, and its results were reported.
+- For comparison, these results are shown below.
+
+Our results:
+- Results computed for my implementation using the most up-to-date code in this repo.
+- In contrast to the paper, these results were obtained via a single trial using the most up-to-date code.
 
 | Task                     | Paper Result  | Our Result  |
 |:-------------------------|--------------:|------------:|
-| 1: 1 supporting fact     |           0.0 |         0.0 |
-| 2: 2 supporting facts    |          11.4 |        14.6 |
-| 3: 3 supporting facts    |          21.9 |        30.2 |
-| 4: 2 argument relations  |          13.4 |         5.9 |
-| 5: 3 argument relations  |          14.4 |        13.6 |
-| 6: yes/no questions      |           2.8 |         2.9 |
-| 7: counting              |          18.3 |        15.8 |
-| 8: lists/sets            |           9.3 |         9.4 |
-| 9: simple negation       |           1.9 |         2.3 |
-| 10: indefinite knowledge |           6.5 |         6.0 |
-| 11: basic coreference    |           0.3 |         1.2 |
-| 12: conjunction          |           0.1 |         0.1 |
-| 13: compound coreference |           0.2 |         1.1 |
-| 14: time reasoning       |           6.9 |         6.7 |
-| 15: basic deduction      |           0.0 |        51.9 |
-| 16: basic induction      |           2.7 |         2.1 |
-| 17: positional reasoning |          40.4 |        44.2 |
-| 18: size reasoning       |           9.4 |        10.4 |
-| 19: path finding         |          88.0 |        89.8 |
-| 20: agent's motivation   |           0.0 |         0.0 |
+| 1: 1 supporting fact     |           0.0 |         0.3 |
+| 2: 2 supporting facts    |          11.4 |         8.8 |
+| 3: 3 supporting facts    |          21.9 |        24.6 |
+| 4: 2 argument relations  |          13.4 |         2.8 |
+| 5: 3 argument relations  |          14.4 |        13.9 |
+| 6: yes/no questions      |           2.8 |         4.0 |
+| 7: counting              |          18.3 |        17.4 |
+| 8: lists/sets            |           9.3 |        11.2 |
+| 9: simple negation       |           1.9 |         3.3 |
+| 10: indefinite knowledge |           6.5 |         6.7 |
+| 11: basic coreference    |           0.3 |         1.0 |
+| 12: conjunction          |           0.1 |         0.8 |
+| 13: compound coreference |           0.2 |         0.4 |
+| 14: time reasoning       |           6.9 |         7.3 |
+| 15: basic deduction      |           0.0 |         0.0 |
+| 16: basic induction      |           2.7 |         3.5 |
+| 17: positional reasoning |          40.4 |        42.1 |
+| 18: size reasoning       |           9.4 |         9.4 |
+| 19: path finding         |          88.0 |        91.3 |
+| 20: agent's motivation   |           0.0 |         0.5 |
 |--------------------------|---------------|-------------|
-| Mean Error (%)           |          12.4 |        15.4 |
-| Failed tasks (err. > 5%) |            11 |          12 |
+| Mean Error (%)           |          12.4 |        12.5 |
+| Failed tasks (err. > 5%) |            11 |          10 |
 
 A script to train a model with this configuration is provided. 
 You may run it as follows:
@@ -208,6 +217,4 @@ And when it is done, you can test your results by running:
 ```
 source scripts/test_each_task_for_trial_i.sh
 ```
-
-
 
