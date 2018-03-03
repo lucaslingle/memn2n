@@ -3,6 +3,7 @@ from MemoryNetwork import MemoryNetwork
 import babi_dataset_utils as bb
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 import sys
 import errno
 
@@ -155,8 +156,7 @@ def main():
                                   word_emb_initializer=FLAGS.word_emb_initializer,
                                   word_emb_init_scale=FLAGS.word_emb_init_scale,
                                   temporal_emb_initializer=FLAGS.temporal_emb_initializer,
-                                  temporal_emb_init_scale=FLAGS.temporal_emb_init_scale,
-                                  )
+                                  temporal_emb_init_scale=FLAGS.temporal_emb_init_scale)
 
         with tf.Session(graph=graph) as sess:
             sess.run(tf.global_variables_initializer())
@@ -164,6 +164,8 @@ def main():
             if FLAGS.load:
                 print("attempting to restore from {}".format(FLAGS.checkpoint_dir))
                 model.load(sess, FLAGS.checkpoint_dir)
+                word_emb_varnames_in_restored_list_order = list(map(lambda v: v.name, model.embedding_matrices['word']))
+                print(word_emb_varnames_in_restored_list_order)
 
             nr_training_examples = len(train)
             nr_validation_examples = len(val)
@@ -184,14 +186,19 @@ def main():
                     np.random.shuffle(train)
 
                     for i in range(0, nr_training_examples, FLAGS.batch_size):
-
-                        if (i + FLAGS.batch_size) > nr_training_examples:
-                            break
+                        sqa_batch = None
 
                         start_idx = i
                         end_idx = i + FLAGS.batch_size
 
-                        sqa_batch = train[start_idx:end_idx]
+                        if (i + FLAGS.batch_size) > nr_training_examples:
+                            _tmp = train[0:i][:]
+                            sqa_tuples_to_pad_batch = list(filter(lambda sqa: sqa.story_task_id == 15, _tmp))
+                            np.random.shuffle(sqa_tuples_to_pad_batch)
+                            sqa_batch = train[start_idx:]
+                            sqa_batch.extend(sqa_tuples_to_pad_batch[0:(FLAGS.batch_size-(nr_training_examples-start_idx))])
+                        else:
+                            sqa_batch = train[start_idx:end_idx]
 
                         sqa_batch_standardized = list(map(
                             lambda sqa: bb.bAbI.standardize_features(
@@ -199,19 +206,20 @@ def main():
                                 babi.max_sentence_len,
                                 FLAGS.number_of_memories,
                                 babi.vocab_dict[babi.pad_token],
-                                add_empty_memories=FLAGS.random_noise
+                                intersperse_empty_memories=FLAGS.random_noise
                             ),
                             sqa_batch
                         ))
 
-                        sentences_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
+                        sentences_ints, sentences_timeword_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
 
                         feed_dict = {
                             model.linear_start_indicator: FLAGS.linear_start,
                             model.learning_rate: learning_rate,
                             model.sentences_ints_batch: sentences_ints,
+                            model.sentences_timewords_ints_batch: sentences_timeword_ints,
                             model.question_ints_batch: question_ints,
-                            model.answer_ints_batch: answer_ints
+                            model.answer_ints_batch: answer_ints,
                         }
 
                         _, loss, acc = sess.run(
@@ -265,19 +273,20 @@ def main():
                             babi.max_sentence_len,
                             FLAGS.number_of_memories,
                             babi.vocab_dict[babi.pad_token],
-                            add_empty_memories=FLAGS.random_noise
+                            intersperse_empty_memories=FLAGS.random_noise
                         ),
                         sqa_batch
                     ))
 
-                    sentences_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
+                    sentences_ints, sentences_timeword_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
 
                     feed_dict = {
                         model.linear_start_indicator: FLAGS.linear_start,
                         model.learning_rate: 0.0,
                         model.sentences_ints_batch: sentences_ints,
+                        model.sentences_timewords_ints_batch: sentences_timeword_ints,
                         model.question_ints_batch: question_ints,
-                        model.answer_ints_batch: answer_ints
+                        model.answer_ints_batch: answer_ints,
                     }
 
                     loss, acc = sess.run(
@@ -324,19 +333,20 @@ def main():
                                 babi.max_sentence_len,
                                 FLAGS.number_of_memories,
                                 babi.vocab_dict[babi.pad_token],
-                                add_empty_memories=FLAGS.random_noise
+                                intersperse_empty_memories=FLAGS.random_noise
                             ),
                             sqa_batch
                         ))
 
-                        sentences_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
+                        sentences_ints, sentences_timeword_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
 
                         feed_dict = {
                             model.linear_start_indicator: FLAGS.linear_start,
                             model.learning_rate: 0.0,
                             model.sentences_ints_batch: sentences_ints,
+                            model.sentences_timewords_ints_batch: sentences_timeword_ints,
                             model.question_ints_batch: question_ints,
-                            model.answer_ints_batch: answer_ints
+                            model.answer_ints_batch: answer_ints,
                         }
 
                         loss, acc = sess.run(
@@ -360,6 +370,81 @@ def main():
                 print("mean cross_entropy on test set: {}, \naccuracy: {}, \nerror_rate: {}".format(
                     mean_cross_entropy, accuracy, error_rate
                 ))
+
+            if FLAGS.mode == 'viz':
+
+                for epoch in range(0, 1):
+                    for i in range(0, FLAGS.batch_size, FLAGS.batch_size):
+
+                        if (i + FLAGS.batch_size) > nr_test_examples:
+                            break
+
+                        start_idx = i
+                        end_idx = i + FLAGS.batch_size
+
+                        sqa_batch = test[start_idx:end_idx]
+
+                        sqa_batch_standardized = list(map(
+                            lambda sqa: bb.bAbI.standardize_features(
+                                sqa,
+                                babi.max_sentence_len,
+                                FLAGS.number_of_memories,
+                                babi.vocab_dict[babi.pad_token],
+                                intersperse_empty_memories=FLAGS.random_noise
+                            ),
+                            sqa_batch
+                        ))
+
+                        sentences_ints, sentences_timeword_ints, question_ints, answer_ints = zip(*sqa_batch_standardized)
+
+                        feed_dict = {
+                            model.linear_start_indicator: FLAGS.linear_start,
+                            model.learning_rate: 0.0,
+                            model.sentences_ints_batch: sentences_ints,
+                            model.sentences_timewords_ints_batch: sentences_timeword_ints,
+                            model.question_ints_batch: question_ints,
+                            model.answer_ints_batch: answer_ints,
+                        }
+
+                        show_temporal = True
+                        temporal_matrices = sess.run(
+                                [
+                                    model.embedding_matrices['temporal'][
+                                        model.routing_formulas['temporal'][FLAGS.weight_tying_scheme]['T_A'](0)
+                                    ],
+                                    model.embedding_matrices['temporal'][
+                                        model.routing_formulas['temporal'][FLAGS.weight_tying_scheme]['T_A'](1)
+                                    ],
+                                    model.embedding_matrices['temporal'][
+                                        model.routing_formulas['temporal'][FLAGS.weight_tying_scheme]['T_A'](2)
+                                    ],
+                                    model.embedding_matrices['temporal'][
+                                        model.routing_formulas['temporal'][FLAGS.weight_tying_scheme]['T_C'](2)
+                                    ]
+                                ],
+                                feed_dict=feed_dict
+                        )
+
+                        for temporal_matrix in temporal_matrices:
+
+                            column_labels = [str(i) for i in range(model.d)]
+                            row_labels = [str(i) for i in range(model.M)]
+
+                            fig, ax = plt.subplots()
+                            heatmap = ax.pcolor(temporal_matrix, cmap=plt.cm.get_cmap('Blues'))
+
+                            # put the major ticks at the middle of each cell
+                            ax.set_xticks(np.arange(temporal_matrix.shape[0]) + 0.5, minor=False)
+                            ax.set_yticks(np.arange(temporal_matrix.shape[1]) + 0.5, minor=False)
+
+                            # want a more natural, table-like display
+                            ax.invert_yaxis()
+                            ax.xaxis.tick_top()
+
+                            ax.set_xticklabels(row_labels, minor=False)
+                            ax.set_yticklabels(column_labels, minor=False)
+                            plt.show()
+                        return
 
 
 main()

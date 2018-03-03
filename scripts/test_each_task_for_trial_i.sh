@@ -1,7 +1,13 @@
-export TRIAL_DIR=trial_${TRIAL_ID}__bAbI_joint_adj_3hop_pe_ls_rn
+export REPO_DIR=/Users/lucaslingle/git/memn2n
+
+export number_of_hops=3
+export TRIAL_DIRNAME=trial_${TRIAL_ID}__bAbI_joint_adj_${number_of_hops}hop_pe_ls_rn
+
+export CHECKPOINT_DIR=${REPO_DIR}/checkpoints/${TRIAL_DIRNAME}
+export VOCAB_DIR=${REPO_DIR}/vocab/${TRIAL_DIRNAME}
 
 for ((i=1; i<=20; i++)); do
-   python main.py \
+   export result=$(python main.py \
     --dataset_selector=babi \
     --data_dir=datasets/bAbI/tasks_1-20_v1-2/en/ \
     --babi_joint=False \
@@ -10,12 +16,14 @@ for ((i=1; i<=20; i++)); do
     --linear_start=False \
     --random_noise=False \
     --embedding_dim=50 \
-    --model_name=MemN2N_bAbI_joint_adj_3hop_pe_ls_rn \
-    --checkpoint_dir=/Users/lucaslingle/git/memn2n/checkpoints/$TRIAL_DIR \
     --mode=test \
     --load=True \
+    --model_name=MemN2N_bAbI_joint_adj_${number_of_hops}hop_pe_ls_rn \
+    --checkpoint_dir=$CHECKPOINT_DIR \
+    --vocab_dir=$VOCAB_DIR \
     --vocab_filename=vocab_babi_en_joint.pkl \
     --max_sentence_len_filename=max_sentence_len_babi_en_joint.pkl \
    2> /dev/null \
-   | fgrep error_rate 
+   | fgrep error_rate);
+  echo task $i result: $result
 done

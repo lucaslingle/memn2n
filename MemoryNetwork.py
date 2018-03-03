@@ -126,7 +126,7 @@ class MemoryNetwork:
         }
 
         # build placeholders
-        self.sentences_ints_batch, self.question_ints_batch, self.answer_ints_batch = self.build_data_inputs()
+        self.sentences_ints_batch, self.sentences_timewords_ints_batch, self.question_ints_batch, self.answer_ints_batch = self.build_data_inputs()
         self.linear_start_indicator, self.learning_rate = self.build_control_inputs()
 
         self.encoding_type = 'position_encoding' if position_encoding else 'bag_of_words'
@@ -139,7 +139,9 @@ class MemoryNetwork:
         self.layer_results = self.build_and_stack_memory_layers(
             weight_tying_scheme,
             self.sentences_ints_batch,
-            self.u_batch)
+            self.sentences_timewords_ints_batch,
+            self.u_batch
+        )
 
         self.memory_output_batch = self.layer_results[-1]
 
@@ -170,9 +172,10 @@ class MemoryNetwork:
 
     def build_data_inputs(self):
         sentences = tf.placeholder(tf.int32, [self.batch_size, self.M, self.J])
+        timewords = tf.placeholder(tf.int32, [self.batch_size, self.M])
         question = tf.placeholder(tf.int32, [self.batch_size, self.J])
         answer = tf.placeholder(tf.int32, [self.batch_size])
-        return sentences, question, answer
+        return sentences, timewords, question, answer
 
     def get_encoded_questions(self, weight_tying_scheme, q_batch):
         B_retrieval_idx = self.routing_formulas['word'][weight_tying_scheme]['B']
@@ -181,13 +184,15 @@ class MemoryNetwork:
         B_word_embeddings = tf.nn.embedding_lookup(B, q_batch)  # [batch_size, J, d]
 
         l_3dim = tf.expand_dims(self.l, 0)                      # [1, J, d]
-        B_word_embeddings = B_word_embeddings * l_3dim          # [batch_size, J, d] x [1, J, d] = [batch_size, J, d]
+        B_word_embeddings = B_word_embeddings * l_3dim          # [batch_size, J, d] (x) [1, J, d] = [batch_size, J, d]
 
         u_batch = tf.reduce_sum(B_word_embeddings, 1)           # [batch_size, d]
 
         return u_batch
 
-    def build_and_stack_memory_layers(self, weight_tying_scheme, input_sentences_ints_batch, u_batch):
+    def build_and_stack_memory_layers(self, weight_tying_scheme, input_sentences_ints_batch, input_timewords_ints_batch,
+                                      u_batch):
+
         layer_results = [u_batch]
         u_next = u_batch
 
@@ -215,6 +220,7 @@ class MemoryNetwork:
 
             u_next = self.build_memory_layer(
                 input_sentences_ints_batch=input_sentences_ints_batch,
+                input_timewords_ints_batch=input_timewords_ints_batch,
                 u_batch=u_next,
                 A=A,
                 C=C,
@@ -227,7 +233,7 @@ class MemoryNetwork:
 
         return layer_results
 
-    def build_memory_layer(self, input_sentences_ints_batch, u_batch,
+    def build_memory_layer(self, input_sentences_ints_batch, input_timewords_ints_batch, u_batch,
                            A, C, T_A, T_C, H):
 
         A_word_embeddings = tf.nn.embedding_lookup(A, input_sentences_ints_batch)  # [batch_size, M, J, d]
@@ -235,14 +241,17 @@ class MemoryNetwork:
 
         l_4dim = tf.expand_dims(tf.expand_dims(self.l, 0), 0)                      # [1, 1, J, d]
 
-        A_word_embeddings = A_word_embeddings * l_4dim    # [batch_size, M, J, d] x [1, 1, J, d] = [batch_size, M, J, d]
-        C_word_embeddings = C_word_embeddings * l_4dim    # [batch_size, M, J, d] x [1, 1, J, d] = [batch_size, M, J, d]
+        A_word_embeddings = A_word_embeddings * l_4dim    # [batch_size, M, J, d] * [1, 1, J, d] = [batch_size, M, J, d]
+        C_word_embeddings = C_word_embeddings * l_4dim    # [batch_size, M, J, d] * [1, 1, J, d] = [batch_size, M, J, d]
 
         m_A_without_temporal = tf.reduce_sum(A_word_embeddings, 2) # [batch_size, M, d]
         m_C_without_temporal = tf.reduce_sum(C_word_embeddings, 2) # [batch_size, M, d]
 
-        m_A = m_A_without_temporal + tf.expand_dims(T_A, 0)
-        m_C = m_C_without_temporal + tf.expand_dims(T_C, 0)
+        T_A_temporal_embeddings = tf.nn.embedding_lookup(T_A, input_timewords_ints_batch)  # [batch_size, M, d]
+        T_C_temporal_embeddings = tf.nn.embedding_lookup(T_C, input_timewords_ints_batch)  # [batch_size, M, d]
+
+        m_A = m_A_without_temporal + T_A_temporal_embeddings  # [batch_size, M, d]
+        m_C = m_C_without_temporal + T_C_temporal_embeddings  # [batch_size, M, d]
 
         u_aug = tf.expand_dims(u_batch, -1)                # [batch_size, d, 1]
         memory_scores = tf.matmul(m_A, u_aug)              # [batch_size, M, d] x [batch_size, d, 1] = [batch_size, M, 1]
@@ -274,7 +283,7 @@ class MemoryNetwork:
         #
         # In this implementation, we assume that the vocab dictionary maps the null word to int value 0.
         #
-        pad_embedding = tf.zeros([1, self.d])
+        pad_embedding = tf.zeros(shape=[1, self.d], dtype=tf.float32)
         nonpad_embeddings = tf.get_variable('word_embedding_matrix_' + str(matrix_id),
                                             dtype='float',
                                             shape=[self.V - 1, self.d],
@@ -284,12 +293,25 @@ class MemoryNetwork:
         return word_embedding_matrix
 
     def build_temporal_embedding_matrix(self, idx):
-
+        # According to 'End-to-End Memory Networks' section 4.2:
+        #  "The embedding of the null symbol was constrained to be zero."
+        #
+        # This appears to apply to empty memories as well.
+        # E.g., if the memories are all at the top of the memory bank, there should be a big block of zeros at the bottom,
+        # even after we do the temporal embedding stuff.
+        #
+        # In this implementation, we assume there are "time words", that correspond to the nonempty memories
+        # and correspond to their various locations in the memory bank.
+        #
+        # For empty memories, there is an (M+1)-th timeword, that is used to look up the "empty" temporal embedding.
+        #
         temporal_embedding_matrix = tf.get_variable('temporal_embedding_matrix_' + str(idx),
                                                     dtype='float',
                                                     shape=[self.M, self.d],
                                                     initializer=self.nonword_initializer)
 
+        empty_memory_temporal_embedding = tf.zeros(shape=[1, self.d], dtype=tf.float32)
+        temporal_embedding_matrix = tf.concat([temporal_embedding_matrix, empty_memory_temporal_embedding], axis=0)
         return temporal_embedding_matrix
 
     def build_H_mapping(self, scope_name, reuse=False):
@@ -305,7 +327,7 @@ class MemoryNetwork:
         return tf.nn.softmax(memory_scores, dim=1)
 
     def build_linear_attention(self, memory_scores):
-        return tf.identity(memory_scores)
+        return memory_scores
 
     def attention_mechanism(self, memory_scores):
         # This function exists so that we can change from attention being linear to softmax
@@ -401,9 +423,26 @@ class MemoryNetwork:
         return tf.ones([self.J, self.d])
 
     def build_position_encoding(self):
+        return self.fb_build_position_encoding()
+
+    def paper_build_position_encoding(self):
+        J, d = self.J, self.d
+
+        def f(JJ, jj, dd, kk):
+            return (1 - jj / float(JJ)) - (kk / float(dd)) * (1 - 2.0 * jj / float(JJ))
+
+        def g(jj):
+            return [f(J, jj, d, k) for k in range(1, d+1)]
+
+        l = [g(j) for j in range(1, J+1)]
+
+        l_tensor = tf.constant(l, shape=[J, d], name='l')
+        return l_tensor
+
+    def fb_build_position_encoding(self):
         """
         Position Encoding as done in Facebook's actual implementation.
-        Not the same as in their paper. Paper encoding ranges from 0-1. This ranges from 0-2.
+        Not the same formula as in their paper. Paper encoding ranges from 0-1. This ranges from 0-2.
 
         In both cases, the idea is to adjust the coordinates of the word embedding in a ramp-like manner,
         that is itself is completely linear for a fixed word position.
@@ -417,16 +456,39 @@ class MemoryNetwork:
         Paper formula:
                     https://www.wolframalpha.com/input/?i=(1.0+-+(y+%2F+20))+-+(x+%2F+50)+*+(1.0+-+(2.0+*+y+%2F+20))+for+0+%3C+x+%3C+50+and+0+%3C+y+%3C+20
         """
-        encoding = np.ones((self.J, self.d), dtype=np.float32)
 
-        j_mid = ((self.J + 1) / 2.0)
+        # Oh, also:
+        # we aren't using the "time word" formulation in our code (we use "temporal embeddings") which are supposed to be equivalent.
+        # however, facebook increments the max_sentence_len value J to include the time word.
+        #
+        # ultimately, facebook modifies the position encoding matrix so that the time word's position encoding consists of all ones,
+        # (so the timeword itself isn't actually position encoded).
+        #
+        # nonetheless, there *is* an impact on the *other* encodings,
+        # because we use a different j_mid and a different J in the denominator of the formula.
+        # and this has a non-negligible impact on the results.
+        #
+        # When using a max sentence len J that included a possible time word,
+        # I found that everything much better than previously.
+
+        J_with_time = self.J + 1
+
+        encoding = np.ones((J_with_time, self.d), dtype=np.float32)
+
+        j_mid = ((J_with_time + 1) / 2.0)
         k_mid = ((self.d + 1) / 2.0)
 
-        for j in range(1, self.J + 1):
+        # computes embedding for 1-based word position variable, j = 1, ..., J_with_time
+        for j in range(1, J_with_time + 1):
+
+            # computes embedding for 1-based embedding coordinate index, k = 1, ..., d
             for k in range(1, self.d + 1):
+
                 encoding[j - 1, k - 1] = (j - j_mid) * (k - k_mid)
 
-        encoding = 1 + 4 * (encoding / (self.J * self.d))
+        encoding = 1 + 4 * (encoding / (J_with_time * self.d))
+        encoding = encoding[0:self.J,:]
+
         l = tf.constant(encoding, shape=[self.J, self.d], name='l')
         return l
 

@@ -3,6 +3,8 @@ import re
 import numpy as np
 import pickle
 import math
+import errno
+import collections
 
 class Sentence:
     def __init__(self, string):
@@ -37,6 +39,15 @@ class Sentence:
         return np.concatenate([sentence_ints_array, padding_array])
 
 
+_SQATuple = collections.namedtuple("SQATuple", ("story_task_id", "context_sentences", "question", "answer"))
+
+class SQATuple(_SQATuple):
+  """
+    Stores the context sentences of a story up to a question, the question itself, and the answer.
+  """
+  __slots__ = ()
+
+
 class Story:
     def __init__(self):
         # Note:
@@ -49,11 +60,19 @@ class Story:
         #  We use dictionaries keyed by line number in order to retrieve relevant story sentences for ease-of-use.
         #  When performance is needed, we convert all sentences, questions, and answers to numpy arrays
 
+        self.story_task_id = None
+
         self.sentences = []
         self.questions = []
         self.answers = []
 
         self.sqa_tuples = []
+
+    def set_story_task_id(self, task_id):
+        if self.story_task_id is None:
+            self.story_task_id = task_id
+        else:
+            raise AttributeError(errno.ENOTSUP, os.strerror(errno.ENOTSUP), "task id for story is immutable")
 
     def sentences_update(self, sentence):
         self.sentences.append(Sentence(sentence))
@@ -63,19 +82,24 @@ class Story:
 
     def answers_update(self, answer):
         self.answers.append(Sentence(answer))
+
+        task_id = self.story_task_id
         s = self.sentences[:]
         q = self.questions[-1]
         a = self.answers[-1]
-        sqa_tuple = (s, q, a)
+
+        sqa_tuple = SQATuple(task_id, s, q, a)
         self.sqa_tuples.append(sqa_tuple)
 
     @staticmethod
     def apply_to_sqa_tokens(sqa, f):
-        ss = list(map(lambda s: list(map(f, s.get_tokens())), sqa[0]))
-        q = list(map(f, sqa[1].get_tokens()))
-        a = f(sqa[2].string)
+        task_id = sqa.story_task_id
 
-        return (ss, q, a)
+        ss = list(map(lambda sentence: [f(token) for token in sentence.get_tokens()], sqa.context_sentences))
+        q = [f(token) for token in sqa.question.get_tokens()]
+        a = f(sqa.answer.string)
+
+        return SQATuple(task_id, ss, q, a)
 
 
 class bAbI:
@@ -118,7 +142,8 @@ class bAbI:
 
         return fp
 
-    def get_stories(self, fp):
+    def get_stories(self, data_dir, train_or_test, task_id):
+        fp = self.get_fp_for_task(data_dir, train_or_test, task_id)
         stories = []
 
         story = None
@@ -139,6 +164,7 @@ class bAbI:
                     if story is not None:
                         stories.append(story)
                     story = Story()
+                    story.set_story_task_id(task_id)
                 story.sentences_update(sentence)
 
         stories.append(story)
@@ -149,13 +175,12 @@ class bAbI:
         max_sentence_len = 0
 
         for sqa in sqa_tuples:
-            ss = list(map(lambda s: s.get_tokens(), sqa[0]))
-            q = sqa[1].get_tokens()
-            a = [sqa[2].string]
+            ss_lens = list(map(lambda sentence: len(sentence.get_tokens()), sqa.context_sentences))
+            q_len = len(sqa.question.get_tokens())
 
-            slen = max([len(s) for s in ss])
-            qlen = len(q)
-            max_sentence_len = max([max_sentence_len, slen, qlen])
+            ss_max_len = max(ss_lens)
+
+            max_sentence_len = max([max_sentence_len, ss_max_len, q_len])
 
         return max_sentence_len
 
@@ -163,14 +188,14 @@ class bAbI:
         vocab = set()
 
         for sqa in sqa_tuples:
-            ss = list(map(lambda s: s.get_tokens(), sqa[0]))
-            q = sqa[1].get_tokens()
-            a = [sqa[2].string]
+            ss_tokens = list(map(lambda sentence: sentence.get_tokens(), sqa.context_sentences))
+            q_tokens = sqa.question.get_tokens()
+            a_token = sqa.answer.string
 
-            s_flat = [token for s in ss for token in s]
-            vocab |= set(s_flat)
-            vocab |= set(q)
-            vocab |= set(a)
+            ss_tokens_flat = [token for sentence_tokens in ss_tokens for token in sentence_tokens]
+            vocab |= set(ss_tokens_flat)
+            vocab |= set(q_tokens)
+            vocab.add(a_token)
 
         return vocab
 
@@ -208,17 +233,13 @@ class bAbI:
             return max_sentence_len
 
     def _prepare_data_for_task_ids(self, data_dir, task_ids, validation_frac, vocab_dict=None, max_sentence_len=None):
-
         train_sqa_tuples_for_all_tasks = []
         validation_sqa_tuples_for_all_tasks = []
         test_sqa_tuples_for_all_tasks = []
 
         for task_id in task_ids:
-            train_fp = self.get_fp_for_task(data_dir, 'train', task_id)
-            test_fp = self.get_fp_for_task(data_dir, 'test', task_id)
-
-            train_stories_for_task = self.get_stories(train_fp)
-            test_stories_for_task = self.get_stories(test_fp)
+            train_stories_for_task = self.get_stories(data_dir, 'train', task_id)
+            test_stories_for_task = self.get_stories(data_dir, 'train', task_id)
 
             # each task has stories, each story has SQA tuples
             # SQA tuples consist of
@@ -263,6 +284,8 @@ class bAbI:
 
         sqa_tuples_for_vocab = []
         sqa_tuples_for_vocab.extend(train_sqa_tuples_for_all_tasks)
+        sqa_tuples_for_vocab.extend(validation_sqa_tuples_for_all_tasks)
+        sqa_tuples_for_vocab.extend(test_sqa_tuples_for_all_tasks)
 
         sqa_tuples_for_max_sentence_len = []
         sqa_tuples_for_max_sentence_len.extend(train_sqa_tuples_for_all_tasks)
@@ -297,10 +320,10 @@ class bAbI:
         return tr, va, te
 
     @staticmethod
-    def standardize_features(sqa, max_sentence_length_J, number_of_memories_M, pad_id, add_empty_memories=False):
-        sentences_ints = sqa[0]
-        question_ints = sqa[1]
-        answer_int = sqa[2]
+    def standardize_features(sqa, max_sentence_length_J, number_of_memories_M, pad_id, intersperse_empty_memories=False):
+        sentences_ints = sqa.context_sentences[:]
+        question_ints = sqa.question
+        answer_int = sqa.answer
 
         # Per Section 4.2:
         #    "The capacity of memory is restricted to the most recent 50 sentences."
@@ -325,8 +348,10 @@ class bAbI:
         Jpadded_question_ints = Sentence.padded_int_array(question_ints, pad_id=pad_id, max_sentence_len=max_sentence_length_J)
 
         sentences_2d_array = pad_id * np.ones((number_of_memories_M, max_sentence_length_J), dtype=np.int32)
+        empty_memory_timeword_id = number_of_memories_M
+        timeword_array = empty_memory_timeword_id * np.ones(number_of_memories_M, dtype=np.int32)
 
-        if add_empty_memories:
+        if intersperse_empty_memories:
             nr_sentences = len(Jpadded_sentences_ints_list)
 
             # This implementation is based on my understanding of the paper and the official implementation.
@@ -353,10 +378,12 @@ class bAbI:
                 target_idx_for_nonempty_memory_i = target_idxs_for_nonempty_memories[i]
                 Jpadded_sentence_ints = Jpadded_sentences_ints_list[i]
                 sentences_2d_array[target_idx_for_nonempty_memory_i,:] = np.array(Jpadded_sentence_ints)
+                timeword_array[target_idx_for_nonempty_memory_i] = target_idx_for_nonempty_memory_i
 
         else:
             nr_sentences = len(Jpadded_sentences_ints_list)
             sentences_2d_array[0:nr_sentences,:] = np.array(Jpadded_sentences_ints_list, dtype=np.int32)
+            timeword_array[0:nr_sentences] = np.array(range(0,nr_sentences), dtype=np.int32)
 
-        return sentences_2d_array, Jpadded_question_ints, answer_int
+        return sentences_2d_array, timeword_array, Jpadded_question_ints, answer_int
 
